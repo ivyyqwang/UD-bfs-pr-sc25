@@ -1,0 +1,597 @@
+// This is all metadata information
+#include "vertex_master.udwh"
+#include "launchers.udwh"
+#include "flag.udwh"
+#include "common.udwh"
+
+
+// #define DEBUG
+
+// #define LANEID 2023
+#define LANEID 0
+
+
+thread map_master {
+    unsigned long num_threads_v;
+    unsigned long num_threads_split_v;
+    unsigned long* map_dram_ptr;
+    unsigned long* reduce_dram_head_ptr;
+    unsigned long previous_vid;
+    unsigned long previous_split_vid;
+    unsigned long map_count_finish1;
+    unsigned long map_count_finish2;
+    unsigned long reduce_count_finish;
+    unsigned long edges_count;
+
+    event init(unsigned long* _gv, unsigned long* _queue_start, unsigned long _queue_length, unsigned long _itera, unsigned long _num_lanes_total){
+        // #ifdef DEBUG
+        // print("[DEBUG][NWID %lu] <init> start addr = 0x%lx, len = %lu", NETID, _queue_start, _queue_length);
+        // #endif
+        unsigned long* local lmbuff = LMBASE;
+        lmbuff[MASTER_THREADID] = TID;
+        lmbuff[MAP_MASTER_CONTINUATION] = CCONT;
+
+        if((_itera & 1) == 0){
+            map_dram_ptr = _queue_start + 16;
+            reduce_dram_head_ptr = map_dram_ptr + (_queue_length << 3);
+            send_dram_read(_queue_start, 1, read_length_from_dram);
+        }else{
+            reduce_dram_head_ptr = _queue_start + 16;
+            map_dram_ptr = reduce_dram_head_ptr + (_queue_length << 3);
+            send_dram_read(_queue_start + 8, 1, read_length_from_dram);
+        }
+        // lmbuff[GV] = _gv;
+        lmbuff[QUEUE_LENGTH] = _queue_length;
+        lmbuff[MAP_DRAM_HEAD_PTR] = map_dram_ptr;
+        // lmbuff[UPDATE_V] = 0;
+        lmbuff[REDUCE_COUNT] = 0;
+        lmbuff[ITERATION] = _itera;
+        lmbuff[MAP_LAUNCH] = 0;
+        lmbuff[MAP_COUNT_INFLIGHT] = 0;
+        lmbuff[NUM_LANES_TOTAL] = _num_lanes_total;
+        lmbuff[STATUS] = 0;
+        
+
+        num_threads_v = NUM_THREADS;
+        num_threads_split_v = 0;
+        previous_vid = -1;
+        previous_split_vid = -1;
+        map_count_finish1 = 0;
+        map_count_finish2 = 0;
+        reduce_count_finish = 0;
+        edges_count = 0;
+
+        unsigned long *local temp_lmbuff = LMBASE + (SENDBUFFER * 8) + 64;
+        temp_lmbuff[0] = _gv;
+        temp_lmbuff[3] = _num_lanes_total;
+        temp_lmbuff[4] = _itera;
+
+
+
+        if(_itera == 0){
+            lmbuff = LMBASE + (CACHE_OFFSET << 3);
+            unsigned long tmp = CACHE_SIZE;
+            for(unsigned long i=0; i < tmp; i=i+1){
+                lmbuff[i] = -1;
+            }
+        }
+        
+        yield;
+    }
+
+    event read_length_from_dram(unsigned long length){
+        // #ifdef DEBUG
+        // print("[DEBUG][NWID %lu] <MASTER read_length_from_dram> length = %lu", NETID, length);
+        // #endif
+        unsigned long* local lmbuff = LMBASE;
+        unsigned long queue_length = lmbuff[QUEUE_LENGTH];
+        if(queue_length < length){
+            print("Error, queue length not long enough, please increase queue length, current queue length is %lu, need queue length is %lu", queue_length, length);
+        }
+        lmbuff[MAP_COUNT] = length;
+        lmbuff[MAP_COUNT2] = length;
+        lmbuff[MAP_COUNT_END] = length;
+        lmbuff[MAP_COUNT_TOTAL] = length;
+        unsigned long cont = lmbuff[MAP_MASTER_CONTINUATION];
+        send_event(cont, NETID, IGNRCONT);
+        lmbuff[STATUS] = 1;
+        yield;
+    }
+
+    event send_to_map_master_thread(unsigned long op0, unsigned long op1){
+        unsigned long* local lmbuff = LMBASE;
+        lmbuff[MAP_MASTER_CONTINUATION] = CCONT;
+        int tid = lmbuff[MASTER_THREADID];
+// #ifdef DEBUG
+//         print("[DEBUG][NWID %lu] <send_to_worker_thread2> tid:%ld, CCONT=%lu", NETID, tid, CCONT);
+// #endif
+        unsigned long evword = evw_update_thread(op0, tid);
+        send_event(evword, op1, CCONT);
+// #ifdef DEBUG
+//         print("[DEBUG][NWID %lu] <send_to_worker_thread2> op1:%lu", NETID, op1);
+// #endif
+        // if(NETID == LANEID){
+        //     print("[DEBUG][NWID %lu] <send_to_worker_thread2> op1:%lu", NETID, op1);
+        // }
+        yield_terminate;
+    }
+    
+    event start(unsigned long itera){
+        unsigned long* local lmbuff = LMBASE;
+        unsigned long launch_count = lmbuff[MAP_LAUNCH];
+        unsigned long map_count = lmbuff[MAP_COUNT];
+        lmbuff[STATUS] = 2;
+        #ifdef DEBUG
+        if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <start> launch_count = %lu, map_count = %lu", NETID, launch_count, map_count);
+        }
+        #endif
+        while((num_threads_v > 0) && (launch_count < map_count))
+        {
+            // #ifdef DEBUG
+            // print("[DEBUG][NWID %lu] <launch_v> launch_count = %lu", NETID, launch_count);
+            // #endif
+            
+            send_dram_read(map_dram_ptr, 2, receive_dram);
+            map_dram_ptr = map_dram_ptr + 16;
+            launch_count = launch_count + 2;
+            num_threads_v = num_threads_v - 1;
+        }
+        if(map_count == map_count_finish2){
+                long cont = lmbuff[MAP_MASTER_CONTINUATION];
+                // unsigned long update_v = lmbuff[UPDATE_V];
+                send_event(cont, map_count, NETID, IGNRCONT);
+                // #ifdef DEBUG
+                // print("[DEBUG][NWID %lu] <start>: cont %lu, map count = %lu, v count finish = %lu", NETID, cont, map_count, map_count_finish2);
+                // #endif
+                lmbuff[STATUS] = 3;
+        }
+        if(num_threads_v > 0){
+            num_threads_split_v = num_threads_v;
+            num_threads_v = 0;
+        }
+        lmbuff[MAP_LAUNCH] = launch_count;
+    }
+
+    event start_split_v(unsigned long itera){
+        unsigned long* local lmbuff = LMBASE;
+        unsigned long launch_count = lmbuff[MAP_LAUNCH];
+        unsigned long map_count = lmbuff[MAP_COUNT_END];
+        
+        while((num_threads_split_v > 0) && (launch_count < map_count))
+        {
+            // #ifdef DEBUG
+            // print("[DEBUG][NWID %lu] <launch_v> launch_count = %lu", NETID, launch_count);
+            // #endif
+            #ifdef DEBUG
+            if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <start_split_v> launch_count = %lu, map_count = %lu", NETID, launch_count, map_count);
+            }
+            #endif
+            send_dram_read(map_dram_ptr, 2, receive_dram_split_v);
+            map_dram_ptr = map_dram_ptr + 16;
+            launch_count = launch_count + 2;
+            num_threads_split_v = num_threads_split_v - 1;
+        }
+        map_count = lmbuff[MAP_COUNT2];
+        map_count = map_count + lmbuff[MAP_COUNT_INFLIGHT];
+        // print("[DEBUG][NWID %lu] <start_split_v> map_count = %lu, num_threads = %lu", NETID, map_count, num_threads);
+        if((map_count == map_count_finish1)){
+            if(lmbuff[STATUS] == 4){
+                long cont = lmbuff[MAP_MASTER_CONTINUATION];
+                // unsigned long update_v = lmbuff[UPDATE_V];
+                send_event(cont, map_count, NETID, IGNRCONT);
+                // #ifdef DEBUG
+                // print("[DEBUG][NWID %lu] <start>: cont %lu", NETID, cont);
+                // #endif
+                lmbuff[STATUS] = 5;
+            }
+        }
+        lmbuff[MAP_LAUNCH] = launch_count;
+    }
+
+    event receive_dram(unsigned long vid, unsigned long parent){
+        unsigned long *local temp_lmbuff = LMBASE + (SENDBUFFER * 8) + 64;
+        // unsigned long* local lmbuff = LMBASE;
+        // temp_lmbuff[0] = lmbuff[GV];
+        temp_lmbuff[1] = vid;
+        temp_lmbuff[2] = parent;
+        // temp_lmbuff[3] = lmbuff[NUM_LANES_TOTAL];
+        // temp_lmbuff[4] = lmbuff[ITERATION];
+        temp_lmbuff[5] = 0;
+        long evword = evw_new(NETID, vertex_master__launch);
+        send_event(evword, temp_lmbuff, 6, vertex_term);
+        #ifdef DEBUG
+        if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <receive_dram> vid = %lu, parent = %lu", NETID, vid, parent);
+        }
+        #endif
+        yield;
+    }
+
+    event receive_dram_split_v(unsigned long vid, unsigned long parent){
+        unsigned long *local temp_lmbuff = LMBASE + (SENDBUFFER * 8) + 64;
+        // unsigned long* local lmbuff = LMBASE;
+        // temp_lmbuff[0] = lmbuff[GV];
+        temp_lmbuff[1] = vid;
+        temp_lmbuff[2] = parent;
+        // temp_lmbuff[3] = lmbuff[NUM_LANES_TOTAL];
+        // temp_lmbuff[4] = lmbuff[ITERATION];
+        temp_lmbuff[5] = 1;
+        long evword = evw_new(NETID, vertex_master__launch);
+        send_event(evword, temp_lmbuff, 6, vertex_term_split_v);
+        yield;
+    }
+
+    event vertex_term(unsigned long n_v, unsigned long vid){
+        // vertex thread terminated
+// #ifdef DEBUG
+//         print("[DEBUG][NWID %lu] <vertex_term>: nv %lu", NETID, n_v);
+// #endif
+        unsigned long* local lmbuff = LMBASE;
+        map_count_finish1 = map_count_finish1 + 2;
+        map_count_finish2 = map_count_finish2 + 2;
+        num_threads_v = num_threads_v + 1;
+
+        unsigned long map_count = lmbuff[MAP_COUNT];
+        #ifdef DEBUG
+        if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <vertex_term> map_count_finish2 %lu, map_count %lu, vid = %lu %lu", NETID, map_count_finish2, map_count, vid, n_v);
+        }
+        #endif
+
+#ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_term>: map_count_finish2 %lu, map_count %lu", NETID, map_count_finish2, map_count);
+#endif
+
+            // Check if map finished
+            if(map_count_finish2 == map_count){
+                if(lmbuff[STATUS] == 2){
+                    long launch_count = lmbuff[MAP_MASTER_CONTINUATION];
+                    send_event(launch_count, map_count, NETID, IGNRCONT);
+                    #ifdef DEBUG
+                    print("[DEBUG][NWID %lu] <start>: cont %lu", NETID, launch_count);
+                    #endif
+                    lmbuff[STATUS] = 3;
+                    num_threads_split_v = num_threads_split_v + num_threads_v;
+                    num_threads_v = 0;
+
+                    map_count = lmbuff[MAP_COUNT_END];
+                    launch_count = lmbuff[MAP_LAUNCH];
+                    while((num_threads_split_v > 0) && (launch_count < map_count))
+                    {  
+                        #ifdef DEBUG
+                        print("[DEBUG][NWID %lu] <write_map_queue_return> receive_dram_split_v launch_count:%lu, map_count:%lu", NETID, launch_count, map_count);
+                        #endif
+                        #ifdef DEBUG
+                        if(NETID == LANEID){
+                        print("[DEBUG][NWID %lu] <vertex_term> launch_count = %lu, map_count = %lu", NETID, launch_count, map_count);
+                        }
+                        #endif
+                        send_dram_read(map_dram_ptr, 2, receive_dram_split_v);
+                        map_dram_ptr = map_dram_ptr + 16;
+                        launch_count = launch_count + 2;
+                        num_threads_split_v = num_threads_split_v - 1;
+                    }
+                    lmbuff[MAP_LAUNCH] = launch_count;
+                }
+            }else{
+                long launch_count = lmbuff[MAP_LAUNCH];
+                if(launch_count < map_count){
+                    num_threads_v = num_threads_v - 1;
+                    send_dram_read(map_dram_ptr, 2, receive_dram);
+                    map_dram_ptr = map_dram_ptr + 16;
+                    launch_count = launch_count + 2;
+                }else{
+                    num_threads_v = num_threads_v - 1;
+                    num_threads_split_v  = num_threads_split_v  + 1;
+                    map_count = lmbuff[MAP_COUNT_END];
+                    if(launch_count < map_count){
+                        num_threads_split_v = num_threads_split_v - 1;
+                        send_dram_read(map_dram_ptr, 2, receive_dram_split_v);
+                        map_dram_ptr = map_dram_ptr + 16;
+                        launch_count = launch_count + 2;
+                    }
+                }
+                lmbuff[MAP_LAUNCH] = launch_count;
+            }
+
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <vertex_term>: end", NETID);
+        #endif
+    }
+
+    event vertex_term_split_v(unsigned long n_v, unsigned long vid){
+        // vertex thread terminated
+#ifdef DEBUG
+        print("[DEBUG][NWID %lu] <vertex_term>: nv %lu", NETID, n_v);
+#endif
+        unsigned long* local lmbuff = LMBASE;
+        map_count_finish1 = map_count_finish1 + 2;
+        num_threads_split_v = num_threads_split_v + 1;
+
+        unsigned long map_count = lmbuff[MAP_COUNT2];
+        map_count = map_count + lmbuff[MAP_COUNT_INFLIGHT];
+        #ifdef DEBUG
+        if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <vertex_term_split_v> map_count_finish1 %lu, map_count %lu, vid = %lu %lu", NETID, map_count_finish1, map_count, vid, n_v);
+        }
+        #endif
+
+// #ifdef DEBUG
+        // print("[DEBUG][NWID %lu] <vertex_term>: map_count_finish1 %lu, map_count2 %lu, num_threads %lu", NETID, map_count_finish1, map_count, num_threads);
+// #endif
+
+        // Check if map finished
+        if((map_count_finish1 == map_count)){
+            if(lmbuff[STATUS] == 4){
+                long cont = lmbuff[MAP_MASTER_CONTINUATION];
+                send_event(cont, map_count, NETID, IGNRCONT);
+                // #ifdef DEBUG
+                // print("[DEBUG][NWID %lu] <vertex_term>: cont %lu", NETID, cont);
+                // #endif
+                lmbuff[STATUS] = 5;
+            }
+        }
+
+
+        long launch_count = lmbuff[MAP_LAUNCH];
+        map_count = lmbuff[MAP_COUNT_END];
+        if (launch_count < map_count)
+        {  
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <write_map_queue_return> receive_dram_split_v launch_count:%lu, map_count:%lu", NETID, launch_count, map_count);
+            #endif
+            #ifdef DEBUG
+            if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <vertex_term_split_v> launch_count = %lu, map_count = %lu", NETID, launch_count, map_count);
+            }
+            #endif
+            send_dram_read(map_dram_ptr, 2, receive_dram_split_v);
+            map_dram_ptr = map_dram_ptr + 16;
+            launch_count = launch_count + 2;
+            num_threads_split_v = num_threads_split_v - 1;
+            lmbuff[MAP_LAUNCH] = launch_count;
+        }
+
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <vertex_term>: end", NETID);
+        #endif
+    }
+
+
+
+    event map_all_launched(){
+        unsigned long* local lmbuff = LMBASE;
+        unsigned long iter = lmbuff[ITERATION];
+        unsigned long evword = evw_update_event(CEVNT, start_split_v);
+        send_event(evword, iter, vertex_term_split_v);
+        lmbuff[STATUS] = 4;
+    }
+
+
+    event map_split_all_launched(){
+        //print("[DEBUG][NWID %lu] <all_launched (v)>: master v all launch received", NETID);
+        unsigned long* local lmbuff = LMBASE;
+        reduce_count_finish = reduce_count_finish + 1;
+        unsigned long reduce_count = lmbuff[REDUCE_COUNT];
+        lmbuff[STATUS] = 6;
+        if(reduce_count_finish == (reduce_count+1)){
+            if(lmbuff[STATUS] == 6){
+                lmbuff[STATUS] = 7;
+                if(reduce_count > lmbuff[QUEUE_LENGTH]){
+                    print("Reduce queue length %lu > malloc size %lu", reduce_count, lmbuff[QUEUE_LENGTH]);
+                }
+                // #ifdef DEBUG
+                // print("[DEBUG][NWID %lu] <map_split_all_launched> len:%lu", NETID, reduce_count);
+                // #endif
+                unsigned long itera = lmbuff[ITERATION];
+                if((itera & 1) == 0){
+                    long * dram_ptr = lmbuff[MAP_DRAM_HEAD_PTR];
+                    dram_ptr = dram_ptr - 8;
+                    send_dram_write(dram_ptr, reduce_count, wrtie_reduce_length);
+                    yield;
+                }else{
+                    long * dram_ptr = reduce_dram_head_ptr - 16;
+                    send_dram_write(dram_ptr, reduce_count, wrtie_reduce_length);
+                    yield;
+                }
+            }
+        }
+        yield;
+    }
+
+    event wrtie_reduce_length(){
+        unsigned long* local lmbuff = LMBASE;
+        long cont = lmbuff[MAP_MASTER_CONTINUATION];
+        unsigned long reduce_count = lmbuff[REDUCE_COUNT];
+        send_event(cont, reduce_count, edges_count, IGNRCONT);
+        yield_terminate;
+    }
+
+    event add_v(long vid, long parent){
+        // if(previous_vid == vid){
+        //     send_event(CCONT, vid, IGNRCONT);
+        //     #ifdef DEBUG
+        //     print("[DEBUG][NWID %lu] <add_v> vid:%lu, parent:%lu", NETID, vid, parent);
+        //     #endif
+        //     yield;
+        // }
+        // previous_vid = vid;
+        edges_count = edges_count + 1;
+
+        unsigned long* local lmbuff = LMBASE;
+        long hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+            }: [src] "r" (vid), [dst] "r" (hash_id);
+        unsigned long total_lane = lmbuff[NUM_LANES_TOTAL];
+        hash_id = hash_id / total_lane;
+        hash_id = hash_id & (CACHE_ENTRIES_NUM_1);
+
+        lmbuff = LMBASE + (CACHE_OFFSET << 3);
+        unsigned long index = 2*hash_id;
+        total_lane = lmbuff[index];
+        hash_id = -1;
+        if(vid == total_lane){
+            send_event(CCONT, vid, IGNRCONT);
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <add_v> vid:%lu, parent:%lu", NETID, vid, parent);
+            #endif
+            yield;
+        }
+        if(total_lane == hash_id){
+            lmbuff[index] = vid;
+            lmbuff[index+1] = hash_id;
+        }
+
+
+        lmbuff = LMBASE;
+        hash_id = lmbuff[REDUCE_COUNT];
+        long * dram_ptr = hash_id << 3;
+        dram_ptr = reduce_dram_head_ptr + dram_ptr;
+        send_dram_write(dram_ptr, vid, parent, wrtie_reduce_queue_return);
+        hash_id = hash_id + 2;
+        lmbuff[REDUCE_COUNT] = hash_id;
+        send_event(CCONT, vid, IGNRCONT);
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <add_v> vid:%lu, parent:%lu", NETID, vid, parent);
+        #endif
+        yield;
+    }
+
+    event add_vertex(long vid, long parent){
+        unsigned long* local lmbuff = LMBASE;
+        int tid = lmbuff[MASTER_THREADID];
+        long evword0 = evw_update_event(CEVNT, add_v);
+        unsigned long evword = evw_update_thread(evword0, tid);
+        send_event(evword, vid, parent, CCONT);
+        yield_terminate;
+    }
+
+    event add_split_vertex(long vid, long parent){
+        unsigned long* local lmbuff = LMBASE;
+        int tid = lmbuff[MASTER_THREADID];
+        long evword0 = evw_update_event(CEVNT, add_split_v);
+        unsigned long evword = evw_update_thread(evword0, tid);
+        send_event(evword, vid, parent, CCONT);
+        yield_terminate;
+    }
+
+    event add_split_v(long vid, long parent){ 
+        send_event(CCONT, vid, IGNRCONT);
+        // if(previous_split_vid == vid){
+        //     #ifdef DEBUG
+        //     print("[DEBUG][NWID %lu] <add_split_v> vid:%lu, parent:%lu", NETID, vid, parent);
+        //     #endif
+        //     yield;
+        // }
+        // previous_split_vid = vid;
+
+        unsigned long* local lmbuff = LMBASE;
+        long hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+            }: [src] "r" (vid), [dst] "r" (hash_id);
+        unsigned long tmp = lmbuff[NUM_LANES_TOTAL];
+        hash_id = hash_id / tmp;
+        hash_id = hash_id & (CACHE_ENTRIES_NUM_1);
+        hash_id = hash_id * 2;
+
+        lmbuff = LMBASE + (CACHE_OFFSET << 3);
+        unsigned long cache_vid = lmbuff[hash_id];
+        tmp = -1;
+        if((vid == cache_vid)){
+            if(lmbuff[hash_id+1] != tmp){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <add_v> vid:%lu, parent:%lu", NETID, vid, parent);
+                #endif
+                yield;
+            }
+        }
+        if(cache_vid == tmp){
+            lmbuff[hash_id] = vid;
+            tmp = tmp - 1;
+            lmbuff[hash_id+1] = tmp;
+        }
+
+        lmbuff = LMBASE;
+
+        // if(num_threads_split_v > 0){
+        //         num_threads_split_v = num_threads_split_v - 1;
+        //         #ifdef DEBUG
+        //         if(NETID == LANEID){
+        //             print("[DEBUG][NWID %lu] <add_split_v> vid = %lu, parent = %lu", NETID, vid, parent);
+        //         }
+        //         #endif
+        //         long evword = evw_update_event(CEVNT, receive_dram_split_v);
+        //         send_event(evword, vid, parent, IGNRCONT);
+        //         tmp = lmbuff[MAP_COUNT_INFLIGHT];
+        //         lmbuff[MAP_COUNT_INFLIGHT] = tmp + 2;
+        //         yield;
+        // }
+
+        long * dram_ptr = lmbuff[MAP_DRAM_HEAD_PTR];
+        cache_vid = lmbuff[MAP_COUNT2];
+        dram_ptr = dram_ptr + (cache_vid << 3);
+        cache_vid = cache_vid + 2;
+        lmbuff[MAP_COUNT2] =  cache_vid;
+        if(lmbuff[QUEUE_LENGTH] < cache_vid){
+            print("Error, queue length not long enough, please increase queue length, current queue length is %lu, need queue length is %lu", lmbuff[QUEUE_LENGTH], cache_vid);
+        }
+        send_dram_write(dram_ptr, vid, parent, write_map_queue_return);
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <add_split_v> vid:%lu, parent:%lu", NETID, vid, parent);
+        #endif
+    }
+
+    event write_map_queue_return(){
+        unsigned long* local lmbuff = LMBASE;
+        unsigned long total = lmbuff[MAP_COUNT_TOTAL] + 2;
+        lmbuff[MAP_COUNT_TOTAL] = total;
+        if(total == lmbuff[MAP_COUNT2]){
+            lmbuff[MAP_COUNT_END] = total;
+            if(num_threads_split_v > 0){
+                unsigned long launch_count = lmbuff[MAP_LAUNCH];
+                while((num_threads_split_v > 0) && (launch_count < total)){
+                    send_dram_read(map_dram_ptr, 2, receive_dram_split_v);
+                    map_dram_ptr = map_dram_ptr + 16;
+                    launch_count = launch_count + 2;
+                    num_threads_split_v = num_threads_split_v - 1;
+                }
+                lmbuff[MAP_LAUNCH] = launch_count;
+            }
+        }
+
+    }
+
+
+    event wrtie_reduce_queue_return(){
+        unsigned long* local lmbuff = LMBASE;
+        reduce_count_finish = reduce_count_finish + 2;
+        unsigned long reduce_count = lmbuff[REDUCE_COUNT];
+        if(reduce_count_finish == (reduce_count+1)){
+            if(lmbuff[STATUS] == 6){
+                lmbuff[STATUS] = 7;
+                if(reduce_count > lmbuff[QUEUE_LENGTH]){
+                    print("Reduce queue length %lu > malloc size %lu", reduce_count, lmbuff[QUEUE_LENGTH]);
+                }
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <wrtie_reduce_queue_return> len:%lu", NETID, reduce_count);
+                #endif
+                unsigned long itera = lmbuff[ITERATION];
+                if((itera & 1) == 0){
+                    long * dram_ptr = lmbuff[MAP_DRAM_HEAD_PTR];
+                    dram_ptr = dram_ptr - 8;
+                    send_dram_write(dram_ptr, reduce_count, wrtie_reduce_length);
+                    yield;
+                }else{
+                    long * dram_ptr = reduce_dram_head_ptr - 16;
+                    send_dram_write(dram_ptr, reduce_count, wrtie_reduce_length);
+                    yield;
+                }
+            }
+        }
+        yield;
+    }
+}

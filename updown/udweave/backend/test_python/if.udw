@@ -1,0 +1,27 @@
+thread thread1 {
+    int bbbb;
+    event event1() {
+        int a = 0;
+        int b = 0;
+        int c = 0;
+        long aaaaaa = TID;
+        
+        if (c + bbbb) {
+            c = 10;
+        } elif (c + b) {
+            c = 20;
+        }
+
+        c = 10;
+
+        if (a) {
+            c = 10;
+        }
+
+        if (c == 0) {
+            c = 10;
+        } else {
+            a = 100;
+        }
+    }
+}

@@ -1,0 +1,52 @@
+/* RUN: %udweave -i %s --weave-ir -o %t | filecheck %s < %t
+*/
+
+int static static_int_var;
+int static private static_private_int_var;
+extern int extern_int_var;
+
+thread thread1{
+    int static thread_static_int_var;
+    int static private thread_static_private_int_var;
+    event event1() {
+        int static event_static_int_var;
+        int static private event_static_private_int_var;
+        int a;
+        int b = 0;
+        int c,d;
+        int e=5, f=3;
+        int g,h,i,j;
+        int const l,m;
+        int n,*o, * local p;
+    }
+}
+
+/* CHECK: Module: declarations
+ CHECK: static i32 static_int_var;
+ CHECK: static private i32 static_private_int_var;
+ CHECK: static i32 extern_int_var;
+ CHECK: thread: thread1
+ CHECK: static i32 thread1::thread_static_int_var;
+ CHECK: static private i32 thread1::thread_static_private_int_var;
+ CHECK: event: event1 ():
+ CHECK: static i32 thread1::event1::event_static_int_var;
+ CHECK: static private i32 thread1::event1::event_static_private_int_var;
+ CHECK: alloca %0 i32 a;
+ CHECK: alloca %1 i32 b;
+ CHECK: alloca %2 i32 c;
+ CHECK: alloca %3 i32 d;
+ CHECK: alloca %4 i32 e;
+ CHECK: alloca %5 i32 f;
+ CHECK: alloca %6 i32 g;
+ CHECK: alloca %7 i32 h;
+ CHECK: alloca %8 i32 i;
+ CHECK: alloca %9 i32 j;
+ CHECK: alloca %10 i32 l;
+ CHECK: alloca %11 i32 m;
+ CHECK: alloca %12 i32 n;
+ CHECK: alloca %13 ptr o;
+ CHECK: alloca %14 ptr p;
+ CHECK: %1 = load i32, 0
+ CHECK: %4 = load i32, 5
+ CHECK: %5 = load i32, 3
+*/

@@ -1,0 +1,379 @@
+#define GRAPH_PTR_OFFSET (0)
+#define ORIG_GRAPH_OFFSET (88)
+#define KVMSR_META_DATA_OFFSET (112)
+#define INPUT_KVSET_META_DATA_OFFSET (240)
+#define ITERATION_OFFSET (256)
+#define FRONITER_EVW_OFFSET (104)
+
+#define MAX_FETCH_NLIST_SIZE (16)
+#define WORD_SIZE (8)
+#define LOG2_WORD_SIZE (3)
+#define DRAM_MSG_SIZE (8)
+#define DRAM_MSG_BSIZE (64)
+#define VERTEX_LOG2_BSIZE (6)
+#define VERTEX_BSIZE (64)
+#define VERTEX_SIZE (8)
+#define DIST_VSTRUCT_OFFSET (4 << LOG2_WORD_SIZE)
+
+#define PULL_SWITCH_AT_ITERATION 3
+#define PUSH_SWITCH_AT_ITERATION 5
+
+#define MAX_UPDATE_SIBLINGS (32)
+
+#define DEBUG_FLAG 0
+
+extern event BFS_pull::kv_map_return();
+extern event BFS::allocate_frontier();
+
+thread BFS_pull {
+    long* graph;
+    // long* orig_graph;
+    long* nlist_ptr;
+
+    long sibling_vid;
+    long num_siblings;
+    long vid;
+    long orig_vid;
+    long parent;
+    long* nlist_bound;
+    long num_pending;
+    long iteration;
+    // long is_active;
+    
+    // Vertex structure 
+    // Operands:
+    //     X8  degree;
+    //     X9  orig_vid;
+    //     X10 vid;
+    //     X11 *neighbors;
+    //     X12 distance;
+    //     X13 parent;
+    //     X14 split_range;
+    //     X15 padding;
+    event kv_map(long deg_op, long orig_vid_op, long vid_op, long *neighbors_op, long dist_op, long parent_op, long split_range_op, long padding_op, long* vertex_addr) {
+
+        long* local tmp_lm_ptr = LMBASE + ITERATION_OFFSET;
+        iteration = *tmp_lm_ptr;
+
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][kv_map] Vertex %ld (addr=0x%lx) degree=%ld orig_vid=%ld nlist_ptr=0x%lx distance=%ld iteration=%ld", NETID, vid_op, vertex_addr, deg_op, orig_vid_op, neighbors_op, dist_op, iteration);
+        }
+
+        // The vertex is visited, skip it
+        if (dist_op >= 0 && dist_op <= iteration) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][kv_map] Vertex %ld is already visited in previous iteration, return to UDKVMSR", NETID, vid_op);
+            }
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            *tmp_lm_ptr = *tmp_lm_ptr + 0;
+            send_event(evw, vid_op, CEVNT);
+            yield;
+        }
+
+        // The vertex has degree 0, skip it
+        if (deg_op == 0) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][kv_map] Vertex %ld has degree 0, return to UDKVMSR", NETID, vid_op);
+            }
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            *tmp_lm_ptr = *tmp_lm_ptr + 0;
+            send_event(evw, vid_op, CEVNT);
+            yield;
+        }
+
+        nlist_bound = neighbors_op + (deg_op << LOG2_WORD_SIZE);
+        nlist_ptr = neighbors_op;
+        vid = vid_op;
+        orig_vid = orig_vid_op;
+        sibling_vid = split_range_op >> 32;
+        num_siblings = (split_range_op & 0xFFFFFFFF) - sibling_vid;
+        num_pending = 0;
+
+        tmp_lm_ptr = LMBASE + GRAPH_PTR_OFFSET;
+        graph = *tmp_lm_ptr;
+        long evw = evw_update_event(CEVNT, rd_nlist_return);
+        long max_fetch_size = MAX_FETCH_NLIST_SIZE;
+        
+        while (num_pending < deg_op) {
+            
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, evw);
+            num_pending = num_pending + DRAM_MSG_SIZE;
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+
+            if (num_pending >= max_fetch_size) {
+                break;
+            }
+        }
+
+        parent = -1;
+    }
+
+    event rd_nlist_return(long e0, long e1, long e2, long e3, long e4, long e5, long e6, long e7, long* curr_nlist_addr) {
+        if (parent >= 0) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][rd_nlist_return] Already found a visited neighbor for vid=%ld (parent=%ld), skip the rest neighbors. Number of pending neighbors = %ld", NETID, vid, parent, num_pending);
+            }
+            num_pending = num_pending - DRAM_MSG_SIZE;
+            if (num_pending == 0) {
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][rd_nlist_return] Finish fetching neighbors for vid=%ld and found a visited neighbor parent=%ld, read the original vertex %ld", NETID, vid, parent, orig_vid);
+                }
+                // Finish fetching the neighbors, read the original vertex
+                long* local tmp_lm_ptr = LMBASE + ORIG_GRAPH_OFFSET;
+                long *orig_graph = *tmp_lm_ptr;
+                long *orig_vertex_addr = orig_graph + (orig_vid << VERTEX_LOG2_BSIZE);
+                long cont = evw_update_event(CEVNT, read_orig_vertex);
+                send_dram_read(orig_vertex_addr, VERTEX_SIZE, cont);
+            }
+            yield;
+        }
+        if (nlist_ptr < nlist_bound) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, CEVNT);
+            num_pending = num_pending + DRAM_MSG_SIZE;
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+        }
+
+        long* tmp_nlist_ptr = curr_nlist_addr;
+        long read_vertex_evw = evw_update_event(CEVNT, read_vertex);
+
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 8;
+            yield;
+        }
+        long *tmp_vertex_addr = graph + (e0 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 7;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e1 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 6;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e2 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 5;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e3 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 4;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e4 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 3;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e5 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 2;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e6 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 1;
+            yield;
+        }
+        tmp_vertex_addr = graph + (e7 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, DRAM_MSG_SIZE, read_vertex_evw);
+
+        yield;
+
+    }
+
+    event read_vertex(long deg_op, long orig_vid_op, long vid_op, long neighbors_op, long dist_op, long parent_op, long split_range_op, long padding_op, long* vertex_addr) {
+        num_pending = num_pending - 1;
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][read_vertex] Read neighbor vertex %ld (addr=0x%lx) degree=%ld orig_vid=%ld nlist_ptr=0x%lx distance=%ld", NETID, vid_op, vertex_addr, deg_op, orig_vid_op, neighbors_op, dist_op);
+        }
+
+        if ((parent < 0) && (dist_op == iteration - 1)) {
+            // Insert into the frontier
+            parent = orig_vid_op;
+            // if (DEBUG_FLAG) {
+            //     print("[DEBUG][NWID %d][read_vertex] Find a visited neighbor vid=%ld (orig_vid=%ld) distance=%ld of vertex %ls, update the origianl vid=%ld", NETID, vid_op, orig_vid_op, dist_op, vid, orig_vid);
+            // }
+        }
+
+        if (num_pending == 0) {
+            if (parent >= 0) {
+                // Finish fetching the neighbors, read the original vertex
+                long* local tmp_lm_ptr = LMBASE + ORIG_GRAPH_OFFSET;
+                long *orig_graph = *tmp_lm_ptr;
+                long *orig_vertex_addr = orig_graph + (orig_vid << VERTEX_LOG2_BSIZE);
+                long cont = evw_update_event(CEVNT, read_orig_vertex);
+                send_dram_read(orig_vertex_addr, VERTEX_SIZE, cont);
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][read_vertex] Finish fetching neighbors for vid=%ld and found a visited neighbor parent=%ld, read the original vertex %ld", NETID, vid, parent, orig_vid);
+                }
+                yield;
+            } else {
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][read_vertex] No visited neighbor found for vid=%ld, return to UDKVMSR", NETID, vid);
+                }
+                long evw = evw_update_event(CEVNT, kv_map_return);
+                long* local tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+                *tmp_lm_ptr = *tmp_lm_ptr + 0;
+                send_event(evw, vid_op, CEVNT);
+                yield;
+            }
+        }
+        
+        yield;
+    }
+
+    event read_orig_vertex(long deg_op, long orig_vid_op, long vid_op, long neighbors_op, long dist_op, long parent_op, long split_range_op, long padding_op, long* vertex_addr) {
+        if (dist_op == iteration) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][read_orig_vertex] Vertex %ld is already updated to the newest distance by a sibling, return to UDKVMSR", NETID, orig_vid);
+            }
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            long* local tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            *tmp_lm_ptr = *tmp_lm_ptr + 0;
+            send_event(evw, vid_op, CEVNT);
+            if (DEBUG_FLAG) {
+                if (dist_op >= 0 && dist_op < iteration) {
+                    print("ERROR! Vertex %ld is already visited in previous iteration", vid_op);
+                }
+            }
+            yield;
+        }
+
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][read_orig_vertex] Update the distance of original vertex %ld and its siblings to %ld and parent to %ld", NETID, orig_vid, iteration, parent);
+        }
+
+        if (iteration >= (PUSH_SWITCH_AT_ITERATION)) {
+            // generate frontier for push phase
+            long cont = evw_update_event(CEVNT, alloc_frontier);
+            long* local tmp_lm_ptr = LMBASE + FRONITER_EVW_OFFSET;
+            long frontier_evw = *tmp_lm_ptr;
+            frontier_evw = evw_update_event(frontier_evw, BFS::allocate_frontier);
+            send_event(frontier_evw, num_siblings, cont);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][read_orig_vertex] vid=%ld request %ld elements from frontier master_evw=%lu", NETID, orig_vid, num_siblings, frontier_evw);
+            }
+            num_pending = (num_siblings << 1);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][read_orig_vertex] Number of pending write operations = %ld", NETID, num_pending);
+            }
+            tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            *tmp_lm_ptr = *tmp_lm_ptr + num_siblings;
+        } else {
+            long* local tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            *tmp_lm_ptr = *tmp_lm_ptr + num_siblings;
+            long sibling_bound = sibling_vid + num_siblings;
+            long evw = evw_update_event(CEVNT, update_siblings);
+            send_event(evw, sibling_bound, CCONT);
+            num_pending = num_siblings;
+        }
+            
+        long* tmp_vertex_addr = vertex_addr + DIST_VSTRUCT_OFFSET;
+        long cont = evw_update_event(CEVNT, write_dram_return);
+        send_dram_write(tmp_vertex_addr, iteration, parent, cont);
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][read_orig_vertex] Write original vid=%ld's new distance %ld to addr=%lu(0x%lx) and parent=%ld", NETID, orig_vid, iteration, tmp_vertex_addr, tmp_vertex_addr, parent);
+        }
+        num_pending = num_pending + 1;
+
+        long sibling_bound = sibling_vid + num_siblings;
+    }
+
+    event update_siblings(long sibling_bound) {
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][update_siblings] Update siblings for vid %ld starting vid=%ld", NETID, vid, sibling_vid);
+        }
+        long* tmp_vertex_addr = graph + (sibling_vid << VERTEX_LOG2_BSIZE) + DIST_VSTRUCT_OFFSET;
+        long evw = evw_update_event(CEVNT, write_dram_return);
+        long max_batch_vid = sibling_vid + MAX_UPDATE_SIBLINGS;
+        
+        while (sibling_vid < sibling_bound) {
+            if (sibling_vid > max_batch_vid) {
+                send_event(CEVNT, sibling_bound, CCONT);
+                yield;
+            }
+            send_dram_write(tmp_vertex_addr, iteration, parent, evw);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_siblings] Write vid=%ld to frontier addr=%lu(0x%lx) and its new distance %ld and parent=%ld to addr=%lu(0x%lx)", NETID, sibling_vid, frontier_ptr, frontier_ptr, iteration, parent, tmp_vertex_addr, tmp_vertex_addr);
+            }
+            sibling_vid = sibling_vid + 1;
+            tmp_vertex_addr = tmp_vertex_addr + VERTEX_BSIZE;
+        }
+        
+    }
+    // Allocate the frontier for the push phase
+    event alloc_frontier(long *frontier_addr) {
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][alloc_frontier] Allocate %ld elements for the frontier, receive addr=%lu(0x%lx) ", NETID, num_siblings, frontier_addr, frontier_addr);
+        }
+
+        long sibling_bound = sibling_vid + num_siblings;
+        long evw = evw_update_event(CEVNT, update_siblings_frontier);
+        send_event(evw, frontier_addr, sibling_bound, CCONT);
+        yield;
+    }
+
+    event update_siblings_frontier(long *frontier_addr, long sibling_bound) {
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][update_siblings_frontier] Update siblings for vid %ld starting vid=%ld and write to frontier starting addr=%lu(0x%lx)", NETID, vid, sibling_vid, frontier_addr, frontier_addr);
+        }
+        long* tmp_vertex_addr = graph + (sibling_vid << VERTEX_LOG2_BSIZE) + DIST_VSTRUCT_OFFSET;
+        long* frontier_ptr = frontier_addr;
+        long evw = evw_update_event(CEVNT, write_dram_return);
+        long max_batch_vid = sibling_vid + MAX_UPDATE_SIBLINGS;
+        
+        while (sibling_vid < sibling_bound) {
+            if (sibling_vid > max_batch_vid) {
+                send_event(CEVNT, frontier_ptr, sibling_bound, CCONT);
+                yield;
+            }
+            send_dram_write(tmp_vertex_addr, iteration, parent, evw);
+            send_dram_write(frontier_ptr, sibling_vid, evw);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_siblings_frontier] Write vid=%ld to frontier addr=%lu(0x%lx) and its new distance %ld and parent=%ld to addr=%lu(0x%lx)", NETID, sibling_vid, frontier_ptr, frontier_ptr, iteration, parent, tmp_vertex_addr, tmp_vertex_addr);
+            }
+            sibling_vid = sibling_vid + 1;
+            tmp_vertex_addr = tmp_vertex_addr + VERTEX_BSIZE;
+            frontier_ptr = frontier_ptr + WORD_SIZE;
+        }
+        
+    }
+
+    event write_dram_return(long* return_addr) {
+        num_pending = num_pending - 1;
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][write_dram_return] Write return from addr %lu(0x%lx), number of pending write operations = %ld", NETID, return_addr, return_addr, num_pending);
+        }
+        if (num_pending == 0) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            // long* local tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+            // *tmp_lm_ptr = *tmp_lm_ptr + num_siblings;
+            send_event(evw, orig_vid, num_siblings, CEVNT);
+        }
+        yield;
+    }
+}

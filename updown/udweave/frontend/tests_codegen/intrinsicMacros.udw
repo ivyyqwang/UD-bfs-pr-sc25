@@ -1,0 +1,8 @@
+thread thread1 {
+  event event1() {
+    asm native{"print('hello from file %0')"} : "i"(__FILE__);
+    asm native{"print('hello from line %0')"} : "i"(__LINE__);
+    asm native{"print('hello from thread %0')"} : "i"(__THREADNAME__);
+    asm native{"print('hello from event %0')"} : "i"(__EVENTNAME__);
+  }
+}

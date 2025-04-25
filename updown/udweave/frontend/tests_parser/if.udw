@@ -1,0 +1,50 @@
+thread thread1 {
+    // Single if
+    event a() {
+        if (a+b) {
+
+        }
+
+        if (a+b) {
+            int a;
+        }
+    }
+    // If else
+    event b() {
+        if (a+b) {
+        } else {
+        }
+        if (a+b) {
+            int a;
+        } else {
+            int a;
+        }
+    }
+
+    // If elif
+    event c() {
+        if (a+b) {
+        } elif (a+b) {
+        }
+        if (a+b) {
+            int a;
+        } elif (a+b) {
+            int a;
+        }
+    }
+
+    // If elif else
+    event c() {
+        if (a+b) {
+        } elif (a+b) {
+        } else {
+        }
+        if (a+b) {
+            int a;
+        } elif (a+b) {
+            int a;
+        } else {
+            int a;
+        }
+    }
+}

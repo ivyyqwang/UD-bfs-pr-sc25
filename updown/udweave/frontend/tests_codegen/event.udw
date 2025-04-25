@@ -1,0 +1,45 @@
+extern event AnEvent();
+extern event AnotherEvent(int a);
+extern event YetAnotherEvent(int a, long b);
+extern event some::namespace::otherEvent();
+
+// Empty event
+thread thread1 {
+    event event1() {}
+}
+
+// Event + declaration
+thread thread2 {
+    event event1() {
+        int a;
+    }
+}
+
+// Event + declaration + init
+thread thread3 {
+    event event1() {
+        int a = 9;
+    }
+}
+
+// Event + declaration + expression
+thread thread4 {
+    int a;
+    event event1() {
+        a = 9+9;
+    }
+}
+
+// Event + declaration + expression
+thread thread5 {
+    int c;
+    event event1() {
+        int b;
+        int a = (9+9+b)/4*32+b;
+    }
+}
+
+// EventParams
+thread thread6 {
+    event a_params(int a, int b) {}
+}

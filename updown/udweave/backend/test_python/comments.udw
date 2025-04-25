@@ -1,0 +1,12 @@
+/// THIS IS A PROGRAM COMMENT
+thread a{
+    /// THIS IS A THREAD COMMENT
+    event b() {
+        /// THIS IS AN EVENT COMMENT
+    }
+    /// THIS IS A THREAD COMMENT 2
+    event c() {
+        /// THIS IS AN EVENT COMMENT 2
+    }
+    /// THIS IS A THREAD COMMENT 3
+}

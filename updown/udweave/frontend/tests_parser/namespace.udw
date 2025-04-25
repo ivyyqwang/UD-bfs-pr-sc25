@@ -1,0 +1,7 @@
+thread thread1 {
+    // numbers
+    event a() {
+        a::b;
+        d::e::f;
+    }
+}

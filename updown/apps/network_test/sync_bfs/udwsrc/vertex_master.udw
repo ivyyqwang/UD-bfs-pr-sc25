@@ -1,0 +1,561 @@
+// This is all metadata information
+#include "launchers.udwh"
+#include "flag.udwh"
+#include "common.udwh"
+
+// #define DEBUG
+// #define LANEID 2023
+#define LANEID 287
+
+thread vertex_master {
+    long* g_v;
+    long vid;
+    long parent;
+    long itera;
+    long cont;
+    long num_lanes_total;
+    long count;
+    long hash_id;
+    long return_value;
+    long deg;
+    unsigned long*  neigh_ptr;
+
+    event launch (long* _g_v, long _vid, long _parent, long _num_lanes_total, long _itera, long split){ 
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <vertex_master> inputs vid:%lu, parent:%lu, split:%lu, itera:%lu", NETID, _vid, _parent, split, _itera);
+        #endif
+
+        unsigned long* local lmbuff = LMBASE + (CACHE_OFFSET << 3);
+
+        cont = CCONT;
+        if(split == 1){ 
+            return_value = 2;
+        }else{
+            return_value = 0;
+        }
+
+        hash_id = HASH_SEED;
+        asm{
+            "hash %[src] %[dst]"
+        }: [src] "r" (_vid), [dst] "r" (hash_id);
+
+        hash_id = hash_id / _num_lanes_total;
+        hash_id = hash_id & CACHE_ENTRIES_NUM_1;
+        hash_id = 2*hash_id;
+        vid = lmbuff[hash_id];
+        itera = lmbuff[hash_id+1];
+        unsigned long tmp = -1;
+        if((vid == _vid) && (itera != tmp)){    // cache hit
+            if(itera != (tmp-1)){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> cache hit vid:%lu", NETID, _vid);
+                #endif 
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+        }
+
+        long *v_ptr = _g_v + (_vid << 6);
+        send_dram_read(v_ptr, 8, v_return);
+
+        vid = _vid;
+        itera = _itera;
+        lmbuff[hash_id] = vid;
+        lmbuff[hash_id+1] = itera;
+
+        g_v =  _g_v;
+        parent = _parent;
+        num_lanes_total = _num_lanes_total - 1;
+
+        yield;
+    }
+
+    event v_return(long _degree, long _orig_vid, long _vid, long* _neighbors, long _distance, long _parent, long _split_range, long _padding) {
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <v_return> vid:%lu, distance:%lu, return_value:%lu", NETID, _vid, _distance, return_value);
+        #endif
+
+        #ifdef DEBUG
+        if(NETID == LANEID){
+            print("[DEBUG][NWID %lu] <v_return> vid:%lu, _orig_vid:%lu, _degree:%lu, _split_range:%lu", NETID, _vid,  _orig_vid, _degree, _split_range);
+        }
+        #endif
+
+        unsigned long* local lmbuff = LMBASE + (CACHE_OFFSET << 3);
+        
+        // if(vid != _vid){
+        //     print("error, vertex %lu %lu different", vid, _vid);
+        // }
+
+        if(_distance != -1){
+            if(_distance > itera){
+                print("Error vid = %lu (%lu), previous itera %lu > current itera %lu", _vid, _orig_vid, _distance, itera);
+            }
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> cache miss and update cache vid:%lu", NETID, _vid);
+            #endif
+            lmbuff[hash_id] = vid;
+            lmbuff[hash_id+1] = _distance;
+            send_event(cont, return_value, vid, IGNRCONT);
+            yield_terminate;
+        }
+
+        count = 0;
+
+        if(return_value == 2){
+            /* update vertex structure */
+            long *v_ptr = g_v + (vid << 6);
+            v_ptr = v_ptr + 32;
+            send_dram_write(v_ptr, itera, parent, v_neighs_return);
+            count = count + 1;
+            // lmbuff[hash_id] = vid;
+            // lmbuff[hash_id+1] = itera;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu", NETID, vid);
+            #endif
+            vid = _orig_vid;
+            long* neighbor_ptr = _neighbors;
+            long* neighbor_ptr_end = _neighbors + (_degree << 3);
+            while(neighbor_ptr < neighbor_ptr_end)
+            {
+                send_dram_read(neighbor_ptr, 8, v_neighs);
+                neighbor_ptr = neighbor_ptr + 64;
+                count = count + 8;
+            }
+            yield;
+        }
+
+        if(_orig_vid != _vid){ // split vertex
+            deg =  _degree;
+            neigh_ptr = _neighbors;
+            long *v_ptr = g_v + (_orig_vid << 6);
+            send_dram_read(v_ptr, 8, v_orig_return);
+            yield;
+        }
+
+         /* no split vertex*/
+        if(_split_range == 0){ 
+            /* update vertex structure */
+            long *v_ptr = g_v + (vid << 6);
+            v_ptr = v_ptr + 32;
+            send_dram_write(v_ptr, itera, parent, v_neighs_return);
+            count = count + 1;
+            return_value = 1;
+            // lmbuff[hash_id] = vid;
+            // lmbuff[hash_id+1] = itera;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu", NETID, vid);
+            #endif
+            long* neighbor_ptr = _neighbors;
+            long* neighbor_ptr_end = _neighbors + (_degree << 3);
+            while(neighbor_ptr < neighbor_ptr_end)
+            {
+                send_dram_read(neighbor_ptr, 8, v_neighs);
+                neighbor_ptr = neighbor_ptr + 64;
+                count = count + 8;
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu. count:%lu", NETID, vid, count);
+                #endif
+            }
+            yield;
+        }
+        /* split vertex */
+        long split_vid = (_split_range >> 32) & 0xffffffff;
+        unsigned long split_bound = _split_range & 0xffffffff;
+        while(split_vid < split_bound){
+            if(vid != split_vid){
+                hash_id = HASH_SEED;
+                asm{
+                    "hash %[src] %[dst]"
+                }: [src] "r" (split_vid), [dst] "r" (hash_id);
+                // hash_id = hash_id / CACHE_ENTRIES_NUM;
+                hash_id = hash_id & (num_lanes_total);
+                long evword = evw_new(hash_id, map_master__add_split_vertex);
+                send_event(evword, split_vid, parent, v_neighs_return);
+                count = count + 1;
+            // print("count = %lu", count);
+            }
+            split_vid = split_vid + 1;
+        }
+            long *neighbor_ptr = g_v + (vid << 6);
+            neighbor_ptr = neighbor_ptr + 32;
+            send_dram_write(neighbor_ptr, itera, parent, v_neighs_return);
+            count = count + 1;
+            // lmbuff[hash_id] = vid;
+            // lmbuff[hash_id+1] = itera;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu", NETID, vid);
+            #endif
+            vid = _orig_vid;
+            neighbor_ptr = _neighbors;
+            split_bound = _neighbors + (_degree << 3);
+            while(neighbor_ptr < split_bound)
+            {
+                send_dram_read(neighbor_ptr, 8, v_neighs);
+                neighbor_ptr = neighbor_ptr + 64;
+                count = count + 8;
+            }
+        yield;
+        }
+         // check if this is zero degree or split == -1 vertex
+
+
+    event v_orig_return(long _degree, long _orig_vid, long _vid, long* _neighbors, long _distance, long _parent, long _split_range, long _padding) {
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] <v_orig_return> vid:%lu, distance:%lu, itera:%lu, parent:%lu", NETID, _vid, _distance, itera, parent);
+        #endif
+        
+        if(_distance != -1){
+            unsigned long* local lmbuff = LMBASE + (CACHE_OFFSET << 3);
+            lmbuff[hash_id] = vid;
+            lmbuff[hash_id+1] = _distance;
+            /* update vertex structure */
+            long *v_ptr = g_v + (vid << 6);
+            v_ptr = v_ptr + 32;
+            send_dram_write(v_ptr, _distance, parent, v_neighs_return);
+            count = count + 1;
+            return_value = 1;
+            
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu", NETID, vid);
+            #endif
+            vid = _orig_vid;
+            v_ptr = neigh_ptr;
+            unsigned long* split_bound = v_ptr + (deg << 3);
+            while(v_ptr < split_bound)
+            {
+                send_dram_read(v_ptr, 8, v_neighs);
+                v_ptr = v_ptr + 64;
+                count = count + 8;
+            }
+            yield;
+        }
+
+
+        // /* no split vertex*/
+        // if(_split_range == 0){ 
+        //     unsigned long* local lmbuff = LMBASE + (CACHE_OFFSET << 3);
+        //     // lmbuff[hash_id] = vid;
+        //     // lmbuff[hash_id+1] = itera;
+        //     long *v_ptr = g_v + (_orig_vid << 6);
+        //     v_ptr = v_ptr + 32;
+        //     send_dram_write(v_ptr, itera, parent, v_neighs_return);
+        //     count = count + 1;
+        //     v_ptr = g_v + (vid << 6);
+        //     v_ptr = v_ptr + 32;
+        //     send_dram_write(v_ptr, itera, parent, v_neighs_return);
+        //     count = count + 1;
+        //     return_value = 1;
+        //     long* neighbor_ptr = _neighbors;
+        //     long* neighbor_ptr_end = _neighbors + (_degree << 3);
+        //     while(neighbor_ptr < neighbor_ptr_end)
+        //     {
+        //         send_dram_read(neighbor_ptr, 8, v_neighs);
+        //         neighbor_ptr = neighbor_ptr + 64;
+        //         count = count + 8;
+        //         #ifdef DEBUG
+        //         print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu. count:%lu", NETID, vid, count);
+        //         #endif
+        //     }
+        //     yield;
+        // }
+
+        // lmbuff[hash_id] = vid;
+        // lmbuff[hash_id+1] = -1;
+        long *v_ptr = g_v + (_orig_vid << 6);
+        v_ptr = v_ptr + 32;
+        send_dram_write(v_ptr, itera, parent, v_neighs_return);
+        count = count + 1;
+        /* split vertex */
+        long split_vid = (_split_range >> 32) & 0xffffffff;
+        unsigned long  split_bound = _split_range & 0xffffffff;
+        while(split_vid < split_bound){
+            if(vid != split_vid){
+            hash_id = HASH_SEED;
+            asm{
+                "hash %[src] %[dst]"
+            }: [src] "r" (split_vid), [dst] "r" (hash_id);
+            // hash_id = hash_id / CACHE_ENTRIES_NUM;
+            hash_id = hash_id & (num_lanes_total);
+            long evword = evw_new(hash_id, map_master__add_split_vertex);
+            send_event(evword, split_vid, parent, v_neighs_return);
+            count = count + 1;
+            // print("split_vid = %lu", split_vid);
+            }
+            split_vid = split_vid + 1;
+        }
+        v_ptr = g_v + (vid << 6);
+            v_ptr = v_ptr + 32;
+            send_dram_write(v_ptr, itera, parent, v_neighs_return);
+            count = count + 1;
+            // lmbuff[hash_id] = vid;
+            // lmbuff[hash_id+1] = itera;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> write back vid:%lu", NETID, vid);
+            #endif
+            vid = _orig_vid;
+            v_ptr = neigh_ptr;
+            split_bound = v_ptr + (deg << 3);
+            while(v_ptr < split_bound)
+            {
+                send_dram_read(v_ptr, 8, v_neighs);
+                v_ptr = v_ptr + 64;
+                count = count + 8;
+            }
+        yield;
+
+    }
+
+
+    event v_neighs(long op0, long op1, long op2,long op3,long op4,long op5,long op6, long op7){
+        long op = op0;
+        unsigned long tmp_1 = -1;
+        unsigned long* local lmbuff = LMBASE + (CACHE_OFFSET << 3);
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op0:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 8;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op0:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 0 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+            "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        long evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+        
+
+        op = op1;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op1:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 7;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op1:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 1 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+        op = op2;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op2:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 6;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op2:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 2 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+         #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op2:%lu, hash_id:%lu", NETID, op, hash_id);
+        #endif
+
+        op = op3;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op3:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 5;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op3:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 3 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+        op = op4;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op4:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 4;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op4:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 4 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & num_lanes_total;
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+        op = op5;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op5:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 3;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op5:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 5 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+        op = op6;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op6:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 2;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op6:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 6 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+        op = op7;
+        #ifdef DEBUG
+        print("[DEBUG][NWID %lu] 0 <v_neighs> op7:%lu, count:%lu", NETID, op, count);
+        #endif
+        if(op == tmp_1){
+            count = count - 1;
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <v_neighs> op7:%lu, count:%lu", NETID, op, count);
+            #endif
+            if(count == 0){
+                #ifdef DEBUG
+                print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return 7 vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+                #endif
+                send_event(cont, return_value, vid, IGNRCONT);
+                yield_terminate;
+            }
+            else{
+                yield;
+            }
+        }
+        hash_id = HASH_SEED;
+        asm{
+                "hash %[src] %[dst]"
+        }: [src] "r" (op), [dst] "r" (hash_id);
+        // hash_id = hash_id / CACHE_ENTRIES_NUM;
+        hash_id = hash_id & (num_lanes_total);
+        evword = evw_new(hash_id, map_master__add_vertex);
+        send_event(evword, op, vid, v_neighs_return);
+
+    }
+
+    event v_neighs_return(){
+        count = count - 1;
+        if(count == 0){
+            #ifdef DEBUG
+            print("[DEBUG][NWID %lu] <vertex_master> v_neighs_return vid:%lu, parent:%lu, return_value:%lu", NETID, vid, parent, return_value);
+            #endif
+            send_event(cont, return_value, vid, IGNRCONT);
+            yield_terminate;
+        }
+    }
+}

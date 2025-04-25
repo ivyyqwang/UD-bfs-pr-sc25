@@ -1,0 +1,12 @@
+// Empty event
+thread thread1 {
+    int k;
+    event event1() {
+        int a = 3;
+        int b = 4;
+        int c;
+        c = b;
+        c = a+b;
+        k = c;
+    }
+}

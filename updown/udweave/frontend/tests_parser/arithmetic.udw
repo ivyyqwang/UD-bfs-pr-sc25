@@ -1,0 +1,116 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --ast-dump -o %t | filecheck %s < %t
+*/
+
+thread thread1 {
+    // arithmetic
+    event a() {
+        // Literals
+        a+b;
+        a-b;
+        a*b;
+        a/b;
+        a%b;
+        a&b;
+        a|b;
+        a&&b;
+        a||b;
+
+        // Integers
+        4+5;
+        4-5;
+        4*5;
+        4/5;
+        4%5;
+
+        // floats
+        4.4+5.5;
+        4.4-5.5;
+        4.4*5.5;
+        4.4/5.5;
+        4.4%5.5;
+
+        // Complex
+        a+b-c*d/e;
+        (a+b)*(c-d)/2;
+    }
+}
+
+/* CHECK: WeaveASTTypes.Root <>
+CHECK: WeaveASTTypes.Thread <> name = thread1{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.PLUS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MINUS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.TIMES> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.DIVIDE> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MODULO> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.PLUS> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MINUS> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.TIMES> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.DIVIDE> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MODULO> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.PLUS> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 4.4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 5.5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MINUS> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 4.4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 5.5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.TIMES> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 4.4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 5.5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.DIVIDE> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 4.4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 5.5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MODULO> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 4.4 {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Float> value = 5.5 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MINUS> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.PLUS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.DIVIDE> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.TIMES> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = c {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = d {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = e {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.TIMES> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.PLUS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MINUS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = c {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = d {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 2 {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.BWAND> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.BWOR> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.AND> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.OR> {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = a {{.*}}
+CHECK: WeaveASTTypes.Identifier <{{.*}}> name = b {{.*}}
+*/

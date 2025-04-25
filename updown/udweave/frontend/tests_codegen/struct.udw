@@ -1,0 +1,25 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --weave-ir -o %t | filecheck %s < %t
+*/
+
+struct testStruct {
+    int a;
+    int b;
+}
+
+thread aThrd {
+  testStruct a;
+
+  event aEvent() {
+    testStruct b;
+    int c;
+    a.a = 1;
+    a.b = 2;
+    c = a.a + a.b;
+    b.a = a.a;
+    b.b = a.b;
+  }
+}
+
+/*
+*/

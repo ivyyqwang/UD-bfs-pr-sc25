@@ -1,0 +1,14 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --preprocessor -o %t
+ * RUN: filecheck %s < %t
+*/
+
+#define TEST(x) x x
+
+TEST(1)
+TEST(2)
+
+/* CHECK: 1 1
+CHECK: 2 2
+*/
+

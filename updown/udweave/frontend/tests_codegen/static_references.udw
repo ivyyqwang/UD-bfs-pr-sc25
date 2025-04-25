@@ -1,0 +1,94 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --weave-ir -o %t | filecheck %s < %t
+*/
+
+int static static_int_var;
+int static private static_private_int_var;
+extern int extern_int_var;
+
+thread thread1{
+    int static thread_static_int_var;
+    int static private thread_static_private_int_var;
+    event event1() {
+        int static event_static_int_var;
+        int static private event_static_private_int_var;
+        int a; 
+
+        a = event_static_int_var;
+        a = event_static_private_int_var;
+        a = thread_static_int_var;
+        a = thread_static_private_int_var;
+        a = static_int_var;
+        a = static_private_int_var;
+        a = extern_int_var;
+        event_static_int_var = 1;
+        event_static_private_int_var = 1;
+        thread_static_int_var = 1;
+        thread_static_private_int_var = 1;
+        static_int_var = 1;
+        static_private_int_var = 1;
+        extern_int_var = 1;
+        event_static_int_var = a;
+        event_static_private_int_var = a;
+        thread_static_int_var = a;
+        thread_static_private_int_var = a;
+        static_int_var = a;
+        static_private_int_var = a;
+        extern_int_var = a;
+
+    }
+}
+
+/*
+CHECK: %1 = load ptr, thread1::event1::event_static_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, thread1::event1::event_static_private_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, thread1::thread_static_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, thread1::thread_static_private_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, static_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, static_private_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, extern_int_var
+CHECK: %0 = local_load i32, %1, 0
+CHECK: %1 = load ptr, thread1::event1::event_static_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, thread1::event1::event_static_private_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, thread1::thread_static_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, thread1::thread_static_private_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, static_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, static_private_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, extern_int_var
+CHECK: %3 = load i32, 1
+CHECK: local_store i32, %1, 0, %3
+CHECK: %1 = load ptr, thread1::event1::event_static_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, thread1::event1::event_static_private_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, thread1::thread_static_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, thread1::thread_static_private_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, static_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, static_private_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: %1 = load ptr, extern_int_var
+CHECK: local_store i32, %1, 0, %0
+CHECK: yield 0
+
+*/

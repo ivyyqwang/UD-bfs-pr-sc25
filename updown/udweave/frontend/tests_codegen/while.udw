@@ -1,0 +1,11 @@
+thread thread1 {
+    event event1() {
+        int b = 10;
+
+        while (b < 10) {
+            b = b - 1;
+        }
+
+        int c = 10;
+    }
+}

@@ -1,0 +1,40 @@
+asm {
+    "print('hello_there')"
+};
+
+thread thread1 {
+    int var;
+    asm {
+        "print('hello_there')"
+    };
+    asm {
+        "print(f'hello_there %[var] %1')"
+    } : [var] "r" (var), "l" (a);
+    // numbers
+    event a() {
+        long varName;
+        long someOtherVar;
+        asm {
+            "print(f'hello_there')"
+        };
+        asm {"print(f'hello_there %[SymName]')"}
+            : [SymName] "r"(varName);
+
+            asm {"print(f'hello_there %[SymName] %1 %[someSymb] %3 %4 %5')"}
+            : [SymName] "r"(varName),
+              "=r"(someOtherVar),
+              [someSymb] "l"(a),
+              "r"(var),
+              "i"(3), "i"("fds");
+
+        asm native {
+            "print('hello_there')"
+        };
+
+        asm native {
+            "   print('hello_there')"
+            "   if 1:"
+            "       print('hello_there')"
+        };
+    }
+}

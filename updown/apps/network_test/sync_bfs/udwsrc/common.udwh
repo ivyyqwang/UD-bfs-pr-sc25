@@ -1,0 +1,57 @@
+#ifndef __COMMON_H__
+#define __COMMON_H__
+
+// This is all metadata information
+#define LMSIZE 65536
+#define WORD_SIZE 8
+#define WORD_SIZE_LOG2 3
+
+// Total threads used in BFS
+// #define NUM_THREADS 245
+#define NUM_THREADS 122
+
+// #define NUM_LANES_PER_MASTER 2048
+
+// Each threads in the same lane shared the following scratchpad
+#define TOP_FLAG_OFFSET 0
+#define SENDBUFFER 1
+// send buffer 1 - 17 (16 words)
+#define GLOBAL_MASTER_THREADID 18
+#define GLOBAL_MASTER_CONTINUATION 19
+#define MASTER_THREADID 20
+#define MAP_MASTER_CONTINUATION 21
+#define TMP_CONTINUATION 22
+#define MAP_DRAM_HEAD_PTR 24
+#define MAP_COUNT 25
+#define MAP_COUNT2 26
+#define STATUS 27
+#define REDUCE_COUNT 28
+#define ITERATION 29
+#define MAP_LAUNCH 30
+#define MAP_COUNT_END 31
+#define MAP_COUNT_TOTAL 32
+#define MAP_COUNT_INFLIGHT 33
+#define UPDATE_V 34
+#define NUM_LANES 35
+#define GV 36
+#define MAIN_QUEUE_START 37
+#define QUEUE_LENGTH 38
+#define ITERATION2 39
+#define NUM_LANES_TOTAL 40
+#define LOG2_NUM_CONTROL_LANE 41
+#define CONTROL_LEVEL 42
+
+#define THREADID_OFFSET 43
+
+#define CACHE_OFFSET 2048
+
+
+#define CACHE_ENTRIES_NUM 2048
+#define CACHE_ENTRIES_NUM_1 2047
+#define CACHE_ENTRIES_SIZE 2
+#define CACHE_SIZE 4096
+#define HASH_SEED 0
+
+
+
+#endif

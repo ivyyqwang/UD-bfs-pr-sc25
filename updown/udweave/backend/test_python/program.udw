@@ -1,0 +1,11 @@
+// Empty event
+thread thread1 {
+    event a() {
+    }
+    event b() {
+    }
+    event c() {
+    }
+    event d() {
+    }
+}

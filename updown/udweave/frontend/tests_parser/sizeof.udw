@@ -1,0 +1,9 @@
+thread thread1 {
+    // For
+    event a() {
+       sizeof(int);
+       sizeof(long);
+       sizeof(double);
+       sizeof(float);
+    }
+}

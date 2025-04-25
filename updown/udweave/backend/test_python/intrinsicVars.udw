@@ -1,0 +1,22 @@
+thread thread1 {
+    event event1() {
+        long a;
+        int b;
+        long * local lptr;
+        int * local iptr;
+        b = NETID;
+        b = TID;
+        b = LID;
+        b = UDID;
+        b = CLID;
+        b = NID;
+        a = CEVNT;
+        a = CCONT;
+        b = NEWTH;
+        // Local memory
+        lptr = LMBase;
+        iptr = LMBase;
+        yield;
+        yield_terminate;
+    }
+}

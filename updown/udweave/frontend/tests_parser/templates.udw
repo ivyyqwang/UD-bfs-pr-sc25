@@ -1,0 +1,39 @@
+
+
+template <typename T, eventname E>
+thread t {
+   T a;
+   event someEvent(T param) {
+      T b;
+   }
+}
+
+template <typename T> thread t_int { event eventInterface(); }
+
+thread t<int, somename>;
+
+thread t2 : t<int, somename> {
+   int b;
+}
+
+thread t3 : t2 {
+   int c;
+}
+
+thread t4 {
+   int d;
+}
+
+thread t5 : t3, t4 {
+   int e;
+}
+
+thread t6 : t4, t<int, somename> {
+   int f;
+}
+
+thread t7 : t_int<int> {
+  int g;
+
+  event eventInterface() { int h; }
+}

@@ -1,0 +1,43 @@
+asm {
+    "Line 1;"
+    "Line 2;"
+};
+
+asm {
+    "Line 1;"
+    "Line 2;"
+};
+
+thread thread1 {
+    int var;
+    asm {
+        "Line 1;"
+        "Line 2;"
+    };
+    asm {
+        "Line 1;"
+        "Line 2;"
+    } : [var] "r" (var), "l" (a);
+    // numbers
+    event a() {
+        long varName;
+        long someOtherVar;
+        asm {
+            "Line 1;"
+            "Line 2;"
+            "Line 3;"
+            "Line 4;"
+            "Line 5;"
+        };
+        asm {
+            "Line 1;"
+        } : [SymName] "r" (varName);
+
+        asm {
+            "Line 1;"
+        } : [SymName] "r" (varName),
+            "=r" (someOtherVar),
+            [someSymb] "l" (a),
+            "r" (var);
+    }
+}

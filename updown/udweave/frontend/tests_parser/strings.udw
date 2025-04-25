@@ -1,0 +1,8 @@
+thread thread1 {
+    // numbers
+    event a() {
+        "STRING EXAMPLE";
+        "STRING EXAMPLE"
+        " DIVIDED IN TWO";
+    }
+}

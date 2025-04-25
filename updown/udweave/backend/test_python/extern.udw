@@ -1,0 +1,15 @@
+extern event AnEvent();
+extern event AnotherEvent(int a);
+extern event YetAnotherEvent(int a, long b);
+extern event some::namespace::otherEvent();
+
+
+thread thread1 {
+    event event1() {
+        int * local data;
+        send_event(CEVNT, data, 4, AnEvent);
+        send_event(CEVNT, data, 4, AnotherEvent);
+        send_event(CEVNT, data, 4, YetAnotherEvent);
+        send_event(CEVNT, data, 4, some::namespace::otherEvent);
+    }
+}

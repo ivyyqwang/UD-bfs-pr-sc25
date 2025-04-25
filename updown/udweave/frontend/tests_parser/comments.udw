@@ -1,0 +1,7 @@
+/// THIS IS A PROGRAM COMMENT
+thread a{
+    /// THIS IS A THREAD COMMENT
+    event b() {
+        /// THIS IS AN EVENT COMMENT
+    }
+}

@@ -1,0 +1,60 @@
+/* Test case for struct Element Access
+ * RUN: %udweave -i %s --ast-dump -o %t | filecheck %s < %t
+*/
+
+struct type {
+    int a;
+    int b;
+}
+
+thread myThr {
+    event myEvnt () {
+        type a;
+        type * local b;
+        a.b;
+        b[1].b;
+        a.b = 4;
+        b[1].b = 5;
+        
+
+    }
+}
+
+/* CHECK: WeaveASTTypes.Root <>
+CHECK: WeaveASTTypes.Struct <name> fields = [a, b]{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Empty <>{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = b{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = myThr{{.*}}
+CHECK: WeaveASTTypes.Event <> name = myEvnt{{.*}} 
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Struct> default = WeaveASTTypes.Empty {{.*}}
+CHECK: WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Struct> name = a{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Struct> default = WeaveASTTypes.Empty {{.*}}
+CHECK: WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Struct> name = b{{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.STRUCT_ELEMENT_ACCESS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Undefined> name = a{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.String> name = b{{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.STRUCT_ELEMENT_ACCESS> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MEMORY_DERREF> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 1{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Undefined> name = b{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.String> name = b{{.*}}
+CHECK: WeaveASTTypes.AssignStatement <> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.STRUCT_ELEMENT_ACCESS> {{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Undefined> name = a{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.String> name = b{{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 4{{.*}}
+CHECK: WeaveASTTypes.AssignStatement <> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.STRUCT_ELEMENT_ACCESS> {{.*}}
+CHECK: WeaveASTTypes.BinaryOperator <WeaveBinaryOps.MEMORY_DERREF> {{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 1{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Undefined> name = b{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.String> name = b{{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5{{.*}}
+
+*/

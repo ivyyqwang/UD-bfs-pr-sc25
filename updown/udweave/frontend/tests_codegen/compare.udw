@@ -1,0 +1,15 @@
+// Empty event
+thread thread1 {
+    event event1() {
+        int a;
+        int b;
+        int unsigned c;
+        a = a == b;
+        a = a != b;
+        a = a > b;
+        a = a < b;
+        a = a >= b;
+        a = a <= b;
+
+    }
+}

@@ -1,0 +1,72 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --ast-dump -o %t | filecheck %s < %t
+*/
+
+int static aa;
+int static private aa2;
+extern int b;
+
+thread a{
+    int static aa; // produces a::aa static variable
+    int static private aa2; // produces a::aa static variable
+    event b() {
+        int static aa; // produces a::b::aa static variable
+        int static private aa2; // produces a::b::aa static variable that is private for each lane
+        int a;
+        int b = 0;
+        int c,d;
+        int e=5; f=3;
+        int g,h,i,j;
+        int const l,m;
+        int n,*o, * local p;
+    }
+}
+
+/* CHECK: WeaveASTTypes.Root <>
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Global default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = aa quals = {{.*}}WeaveTypeQualifier.Static{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Global default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = aa2 quals = {{.*}}WeaveTypeQualifier.Static{{.*}}WeaveTypeQualifier.Private{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Global default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = b quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Thread default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = aa quals = {{.*}}WeaveTypeQualifier.Static{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Thread default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = aa2 quals = {{.*}}WeaveTypeQualifier.Static{{.*}}WeaveTypeQualifier.Private{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.AssignStatement <>
+CHECK: WeaveASTTypes.AssignStatement <>{{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 0
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = b quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = c quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = d quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.AssignStatement <>
+CHECK: WeaveASTTypes.AssignStatement <>{{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 5
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = e quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.AssignStatement <>{{.*}}
+CHECK: WeaveASTTypes.Literal <WeaveDataTypes.Integer> value = 3
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Undefined> name = f quals = {{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = g quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = h quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = i quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = j quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = l quals = {{.*}}WeaveTypeQualifier.Constant{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = m quals = {{.*}}WeaveTypeQualifier.Constant{{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = n quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = o quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}WeaveTypeQualifier.Pointer{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> type = Event default = WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = p quals = {{.*}}WeaveTypeQualifier.Signed{{.*}}WeaveTypeQualifier.LocalPointer{{.*}}
+*/
+

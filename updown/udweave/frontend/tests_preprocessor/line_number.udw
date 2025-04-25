@@ -1,0 +1,21 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --ast-dump -o %t
+ * RUN: filecheck %s < %t
+*/
+#define A thread1
+#define B(num) thread thread ## num \
+{ \
+}
+
+// Empty thread
+thread A {}
+
+B(2)
+B(3)
+
+
+/* CHECK: WeaveASTTypes.Root <>
+CHECK: WeaveASTTypes.Thread <> name = thread1 at (line_number.udw:11
+CHECK: WeaveASTTypes.Thread <> name = thread2 at (line_number.udw:13
+CHECK: WeaveASTTypes.Thread <> name = thread3 at (line_number.udw:14
+*/

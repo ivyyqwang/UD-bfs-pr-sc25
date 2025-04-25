@@ -1,0 +1,15 @@
+// Empty event
+thread thread1 {
+    event event1() {
+        int a;
+        int b;
+        int c;
+        a = 5;
+        a = 5+5;
+        a = 2-5;
+        a = 4*6;
+        a = 2/3;
+        a = 2%1;
+        b = (15+6/3)*3-4;
+    }
+}

@@ -1,0 +1,12 @@
+thread aThread{
+    event anEvent() {
+        int a = 1;
+        a = 1_2;
+        a = 0xFF;
+        a = 0b1010;
+        a = 0b1010_1010;
+        a = 0b1010_1010_1010_1010;
+        a = 0xFF_FF;
+        a = 0xFF_FF_FF;
+    }
+}

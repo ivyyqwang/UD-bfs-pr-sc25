@@ -1,0 +1,18 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --ast-dump -o %t | filecheck %s < %t
+*/
+
+struct name {
+    int a;
+    int b;
+}
+
+/* CHECK: WeaveASTTypes.Root <>
+CHECK: WeaveASTTypes.Struct <name> fields = [a, b]{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Empty <>{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Empty <>
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = b{{.*}}
+*/

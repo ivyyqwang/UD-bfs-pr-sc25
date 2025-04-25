@@ -1,0 +1,42 @@
+thread thread1 {
+    // numbers
+    event a() {
+        int a;
+        long b;
+        double c;
+        float d;
+
+        int unsigned a;
+        long unsigned b;
+        double unsigned c;
+        float unsigned d;
+
+        int const unsigned a;
+        long const unsigned b;
+        double const unsigned c;
+        float const unsigned d;
+
+        int unsigned const a;
+        long unsigned const b;
+        double unsigned const c;
+        float unsigned const d;
+
+        int const a;
+        long const b;
+        double const c;
+        float const d;
+
+        int a = 1;
+        long b = 2;
+        double c = 3;
+        float d = 4;
+
+        int *a = 1;
+        long *b = 2;
+        double *c = 3;
+        float *d = 4;
+
+        int * local a = 4;
+
+    }
+}

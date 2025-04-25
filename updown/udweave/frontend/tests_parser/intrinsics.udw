@@ -1,0 +1,9 @@
+thread thread1 {
+    event event1() {
+        intrinsicID();
+        intrinsicID(1);
+        intrinsicID(1,1);
+        intrinsicID(1,a+a);
+        a = a + intrinsicID(1,a+a);
+    }
+}

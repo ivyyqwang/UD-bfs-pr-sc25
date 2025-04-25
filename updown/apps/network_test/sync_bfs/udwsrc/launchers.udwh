@@ -1,0 +1,11 @@
+#ifndef __launchers_H__
+#define __launchers_H__
+
+extern event map_master__add_split_vertex();
+extern event map_master__add_vertex();
+extern event map_master__init();
+extern event map_master__start();
+extern event map_master__send_to_map_master_thread();
+extern event map_master__map_all_launched();
+extern event map_master__map_split_all_launched();
+#endif

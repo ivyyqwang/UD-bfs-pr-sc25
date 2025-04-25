@@ -1,0 +1,19 @@
+int static static_int_var;
+int static private static_private_int_var;
+extern int extern_int_var;
+
+thread thread1{
+    int static thread_static_int_var;
+    int static private thread_static_private_int_var;
+    event event1() {
+        int static event_static_int_var;
+        int static private event_static_private_int_var;
+        int a;
+        int b = 0;
+        int c,d;
+        int e=5, f=3;
+        int g,h,i,j;
+        int const l,m;
+        int n,*o, * local p;
+    }
+}

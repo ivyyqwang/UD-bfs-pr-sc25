@@ -1,0 +1,11 @@
+// Empty event
+thread thread1 {
+    int k;
+    event event1() {
+        long * local res;
+        long b;
+        res[0] = 1;
+        res[0] = b;
+        res[0] = k;
+    }
+}

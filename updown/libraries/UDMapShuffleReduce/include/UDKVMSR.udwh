@@ -1,0 +1,71 @@
+#ifndef __UDKVMSR_H__
+#define __UDKVMSR_H__
+
+
+template <typename INPUT_KEY, typename INPUT_VALUE, typename OUTPUT_KEY, typename OUTPUT_VALUE>
+thread UDKVMSR {
+
+    asm native {
+        "from linker.EFAProgram import efaProgram, EFAProgram"
+        ""
+        "from libraries.UDMapShuffleReduce.linkable.LinkableKVMapShuffleReduceTPL import UDKeyValueMapShuffleReduceTemplate"
+        "from libraries.UDMapShuffleReduce.utils.OneDimArrayKeyValueSet import OneDimKeyValueSet"
+        "from libraries.UDMapShuffleReduce.utils.IntermediateKeyValueSet import IntermediateKeyValueSet"
+        "from libraries.LMStaticMaps.LMStaticMap import *"
+        "from libraries.UDMapShuffleReduce.KVMSRMachineConfig import *"
+        "from libraries.UDMapShuffleReduce.utils.SHTKeyValueSet import SHTKeyValueSet, SingleWordSHTKeyValueSet"
+        ""
+        ""
+    } ;
+    asm native {
+        "def GenLinkableMapShuffleReduceEFA(efa: EFAProgram):"
+        ""
+        "    key_size_input = int(%1/WORD_SIZE)"
+        "    value_size_input = int(%2/WORD_SIZE)"
+        "    key_size_output = int(%3/WORD_SIZE)"
+        "    value_size_output = int(%4/WORD_SIZE)"
+        "    key_size_inter = int(%3/WORD_SIZE)"
+        "    value_size_inter = int(%4/WORD_SIZE)"
+        ""
+        "    testMSR = UDKeyValueMapShuffleReduceTemplate(efa=efa, task_name='%0', meta_data_offset=UDKVMSR_0_OFFSET, debug_flag=True)"
+        "    # Setup the input and output key value set."
+        "    testMSR.set_input_kvset(OneDimKeyValueSet('%0_input', key_size=key_size_input, value_size=value_size_input))"
+        "    testMSR.set_intermediate_kvset(IntermediateKeyValueSet('%0_intermediate', key_size=key_size_inter, value_size=value_size_inter))"
+        "    testMSR.set_output_kvset(OneDimKeyValueSet('%0_output', key_size=key_size_output, value_size=value_size_output))"
+        "    # Set the maximum number of map and reduce threads concurrently running on each lane. Should be less than the max hardware threads supported."
+        "    testMSR.set_max_thread_per_lane(max_map_th_per_lane=10, max_reduce_th_per_lane=100)"
+        ""
+        "    testMSR.generate_udkvmsr_task()"
+        ""
+        "    return efa"
+        "GenLinkableMapShuffleReduceEFA(efa)"
+    } : "i" (__THREADNAME__), 
+        "i" (sizeof(INPUT_KEY)), 
+        "i" (sizeof(INPUT_VALUE)), 
+        "i" (sizeof(OUTPUT_KEY)), 
+        "i" (sizeof(OUTPUT_VALUE)) ;
+
+    event dummmy() {
+        INPUT_VALUE input_value;
+        OUTPUT_VALUE output_value;
+        OUTPUT_KEY output_key;
+        OUTPUT_KEY inter_key;
+        INPUT_KEY input_key;
+        input_value = output_value;
+    }
+
+    event kv_map(INPUT_KEY input_key, INPUT_VALUE input_value);
+    event kv_reduce(OUTPUT_KEY inter_key, OUTPUT_VALUE inter_value);
+
+    extern event map_shuffle_reduce(long *partitions, long num_partition_per_lane, 
+                                            long num_lanes,
+                                            long *input_kvset,
+                                            long *output_kvset);
+    extern event kv_map_emit(OUTPUT_KEY inter_key, OUTPUT_VALUE inter_value);
+    extern event kv_reduce_emit(OUTPUT_KEY output_key, OUTPUT_VALUE output_value);
+    extern event kv_map_return();
+    extern event kv_reduce_return();
+
+}
+
+#endif

@@ -1,0 +1,79 @@
+/* Test case for arithmetic expressions
+ * RUN: %udweave -i %s --ast-dump -o %t | filecheck %s < %t
+*/
+
+
+extern event AnEvent();
+extern event AnotherEvent(int a);
+extern event YetAnotherEvent(int a, long b);
+extern event some::namespace::otherEvent();
+
+// Empty event
+thread thread1 {
+    event a() {}
+}
+
+// Event + declaration
+thread thread2 {
+    event a() {
+        int a;
+    }
+}
+
+// Event + declaration + init
+thread thread3 {
+    event a() {
+        int a = 9;
+    }
+}
+
+// Event + declaration + expression
+thread thread4 {
+    event a() {
+        a = 9+9;
+    }
+}
+
+// Event + declaration + expression
+thread thread5 {
+    event a() {
+        a = (9+9+b)/4*32+b;
+    }
+}
+
+// EventParams
+thread thread6 {
+    event a_params(int a, int b) {}
+}
+
+/*
+CHECK: WeaveASTTypes.Root
+CHECK: WeaveASTTypes.Event <> external - name = AnEvent{{.*}}
+CHECK: WeaveASTTypes.Event <> external - name = AnotherEvent{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a quals = []{{.*}}
+CHECK: WeaveASTTypes.Event <> external - name = YetAnotherEvent{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a quals = []{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Long> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Long> name = b quals = []{{.*}}
+CHECK: WeaveASTTypes.Event <> external - namespace = some::namespace - name = otherEvent{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread1{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread2{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a quals = [<WeaveTypeQualifier.Signed: 2>]{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread3{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread4{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread5{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a{{.*}}
+CHECK: WeaveASTTypes.Thread <> name = thread6{{.*}}
+CHECK: WeaveASTTypes.Event <> name = a_params{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = a quals = []{{.*}}
+CHECK: WeaveASTTypes.DeclarationStatement <WeaveDataTypes.Integer> default = WeaveASTTypes.Empty{{.*}}
+CHECK: WeaveASTTypes.Identifier <WeaveDataTypes.Integer> name = b quals = []{{.*}}
+*/

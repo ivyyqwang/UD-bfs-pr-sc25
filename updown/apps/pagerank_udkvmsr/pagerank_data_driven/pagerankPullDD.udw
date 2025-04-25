@@ -1,0 +1,470 @@
+#define TOP_SYNC_OFFSET 0
+#define INPUT_GRAPH_PTR_OFFSET (784)
+#define OUTPUT_GRAPH_PTR_OFFSET (792)
+#define EPSILON_OFFSET (800)
+#define KVMSR_META_DATA_OFFSET (640)
+#define GRAPH_SIZE_OFFSET (776)
+#define INPUT_KVSET_META_DATA_OFFSET (768)
+#define SEND_BUFFER_OFFSET 8
+
+#define MAX_FETCH_NLIST_SIZE (256)
+#define WORD_SIZE (8)
+#define LOG2_WORD_SIZE (3)
+#define DRAM_MSG_SIZE (8)
+#define DRAM_MSG_BSIZE (64)
+
+#define VERTEX_LOG2_BSIZE (6)
+#define VERTEX_BSIZE (64)
+#define VERTEX_SIZE (8)
+
+#define ALPHA (0.85)
+#define ONE_MINUS_ALPHA (0.15)
+// #define EPSILON (0.000001)
+
+#define DEBUG_FLAG 0
+#define DEBUG_OUTPUT_FLAG 0
+#define DEBUG_DETAIL_FLAG 0
+#define DEBUG_UPDATE_FLAG 0
+
+extern event PageRankPullDD::kv_map_emit();
+extern event PageRankPullDD::kv_map_return();
+extern event PageRankPullDD::map_shuffle_reduce();
+
+thread PageRankPullDD {
+    long* nlist_ptr;
+    long vid;
+
+    double new_value;
+    double old_value;
+    long* nlist_bound;
+    long num_pending;
+
+    long write_ack_evw;
+
+    event kv_map(unsigned long vid_op, long deg_op, long *neighbors_op, double value_op, long active_flag, long pad1, long pad2, long pad3, long* vertex_addr) {
+
+        // The vertex has degree 0, skip it
+        if (deg_op == 0) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][kv_map] Vertex %ld addr %lu(0x%lx) has degree 0, return to UDKVMSR", NETID, vid_op, vertex_addr, vertex_addr);
+            }
+            long evw = evw_update_event(CEVNT, PageRankPullDD::kv_map_return);
+            long unsigned active = 0;
+            send_event(evw, vid_op, active, CEVNT);
+            yield;
+        }
+
+        // The vertex is inactive, skip it
+        if (active_flag == 0) {
+            long* local tmp_lm_ptr = LMBASE + OUTPUT_GRAPH_PTR_OFFSET;
+            long* value_addr = *tmp_lm_ptr;
+            value_addr = value_addr + (vid_op << VERTEX_LOG2_BSIZE) + (3 * WORD_SIZE);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][kv_map] Vertex %ld (addr %lu(0x%lx)) is inactive, skip update, write back old value 0x%lx to addr %lu(0x%lx)", NETID, vid_op, vertex_addr, vertex_addr, value_op, value_addr, value_addr);
+            }
+            write_ack_evw = evw_update_event(CEVNT, write_value_ack);
+            send_dram_write(value_addr, value_op, write_ack_evw);
+            long *active_flag_addr = vertex_addr + (4 * WORD_SIZE);
+            long temp_value = 0;
+            send_dram_write(active_flag_addr, temp_value, write_ack_evw);
+            if (DEBUG_FLAG) {
+                active_flag_addr = active_flag_addr - (WORD_SIZE * 4);
+                print("[DEBUG][NWID %d][kv_map] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, vid_op, active_flag_addr, temp_value);
+            }
+            num_pending = 2;
+            yield;
+        }
+
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][kv_map] Vertex %ld is active (addr=0x%lx) degree=%ld nlist_ptr=0x%lx value=0x%lx", NETID, vid_op, vertex_addr, deg_op, neighbors_op, value_op);
+        }
+        nlist_bound = neighbors_op + (deg_op << LOG2_WORD_SIZE);
+        nlist_ptr = neighbors_op;
+        vid = vid_op;
+        num_pending = 0;
+
+        long evw = evw_update_event(CEVNT, rd_nlist_return);
+        long max_fetch_size = MAX_FETCH_NLIST_SIZE;
+        
+        while (num_pending < deg_op) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, evw);
+            num_pending = num_pending + DRAM_MSG_SIZE;
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+            if (num_pending >= max_fetch_size) {
+                break;
+            }
+        }
+
+        new_value = 0.0;
+        old_value = value_op;
+
+        // Count active set volumn
+        long* local tmp_lm_ptr = LMBASE + KVMSR_META_DATA_OFFSET;
+        long temp_value = *tmp_lm_ptr;
+        temp_value = temp_value + deg_op;
+        *tmp_lm_ptr = temp_value;
+    }
+
+    event rd_nlist_return(long e0, long e1, long e2, long e3, long e4, long e5, long e6, long e7, long* curr_nlist_addr) {
+        if (nlist_ptr < nlist_bound) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, CEVNT);
+            num_pending = num_pending + DRAM_MSG_SIZE;
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+        }
+        long *local tmp_lm_ptr = LMBASE + INPUT_GRAPH_PTR_OFFSET;
+        long *input_graph = *tmp_lm_ptr;
+
+        long* tmp_nlist_ptr = curr_nlist_addr;
+        long read_nbor_vertex_evw = evw_update_event(CEVNT, read_nbor_vertex);
+
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 8;
+            yield;
+        }
+        long *tmp_vertex_addr = input_graph + (e0 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 7;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e1 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 6;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e2 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 5;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e3 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 4;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e4 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 3;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e5 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 2;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e6 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            num_pending = num_pending - 1;
+            yield;
+        }
+        tmp_vertex_addr = input_graph + (e7 << VERTEX_LOG2_BSIZE);
+        send_dram_read(tmp_vertex_addr, VERTEX_SIZE, read_nbor_vertex_evw);
+
+    }
+
+    event read_nbor_vertex(long vid_op, long deg_op, long *neighbors_op, double value_op, long active_flag, long pad1, long pad2, long pad3, long* vertex_addr) {
+        if (DEBUG_DETAIL_FLAG) {
+            print("[DEBUG][NWID %d][read_nbor_vertex] Read neighbor vertex %ld (addr=0x%lx) degree=%ld value=0x%lx", NETID, vid_op, vertex_addr, deg_op, value_op);
+        }
+        new_value = new_value + (value_op / deg_op);
+        if (DEBUG_DETAIL_FLAG) {
+            print("[DEBUG][NWID %d][read_nbor_vertex] Add incoming value of vertex %ld (= 0x%lx / %ld) to the current value 0x%lx", NETID, vid, value_op, deg_op, new_value);
+        }
+        num_pending = num_pending - 1;
+
+        if (num_pending == 0) {
+            long evw = evw_update_event(CEVNT, update_value);
+            long* local tmp_lm_ptr = LMBASE + OUTPUT_GRAPH_PTR_OFFSET;
+            long* output_v_addr = *tmp_lm_ptr;
+            output_v_addr = output_v_addr + (vid << VERTEX_LOG2_BSIZE);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][read_nbor_vertex] Finish fetching neighbors for vid=%ld read the output vertex at addr %lu(0x%lx)", NETID, vid, output_v_addr, output_v_addr);
+            }
+            send_dram_read(output_v_addr, VERTEX_SIZE, evw);
+        }
+        yield;
+    }
+
+    event update_value(long vid_op, long deg_op, long *neighbors_op, double value_op, long active_flag, long pad1, long pad2, long pad3, long* vertex_addr) {
+        if (DEBUG_DETAIL_FLAG) {
+            print("[DEBUG][NWID %d][update_value] Read new vertex %ld (addr=0x%lx) degree=%ld nlist_ptr=0x%lx nlist_bound=0x%lx", NETID, vid_op, vertex_addr, deg_op, neighbors_op, nlist_bound);
+        }
+        if (1) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] Vertex %ld degree = %ld new value = %lx", NETID, vid_op, deg_op, new_value);
+            }
+            long *local tmp_lm_ptr = LMBASE + GRAPH_SIZE_OFFSET;
+            double N = *tmp_lm_ptr;
+            double tmp_val = (ONE_MINUS_ALPHA / N);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] N = %lx, tmp_val = %lx", NETID, N, tmp_val);
+            }
+            new_value = ((ALPHA) * new_value) + tmp_val;
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] Updated new value = %lx", NETID, new_value);
+            }
+        }
+
+        long unsigned active = 0;
+        if (1) {
+            double *local tmp_eps_ptr = LMBASE + EPSILON_OFFSET;
+            double eps = *tmp_eps_ptr;
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] Epsilon = %lx", NETID, eps);
+            }
+            double diff = new_value - old_value;
+            if (diff < 0) {
+                diff = -diff;
+            }
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] Vertex %ld old value = %lx new value = %lx diff = %lx", NETID, vid_op, old_value, new_value, diff);
+            }
+            if (diff < eps) {
+                active = 0;
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][update_value] Diff = 0x%lx is smaller than EPSILON 0x%lx, set vertex %ld active to %lu false for next iteration", NETID, diff, eps, vid, active);
+                }
+            }
+            else {
+                active = 1;
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][update_value] Diff = 0x%lx is larger than EPSILON 0x%lx, set vertex %ld active to %lu true for next iteration", NETID, diff, eps, vid, active);
+                }
+            }
+            write_ack_evw = evw_update_event(CEVNT, write_value_ack);
+            long *value_addr = vertex_addr + (3 * WORD_SIZE);
+            send_dram_write(value_addr, new_value, write_ack_evw);
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][update_value] Update value for vertex %ld addr %lu(0x%lx), new value = 0x%x", NETID, vid_op, vertex_addr, vertex_addr, new_value);
+            }
+
+        }
+
+        if (1){
+            long *local tmp_lm_ptr = LMBASE + INPUT_GRAPH_PTR_OFFSET;
+            long* flag_addr = *tmp_lm_ptr;
+            flag_addr = flag_addr + (vid << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+            long val = 0;
+            send_dram_write(flag_addr, val, write_ack_evw);
+            if (DEBUG_FLAG) {
+                flag_addr = flag_addr - (WORD_SIZE * 4);
+                print("[DEBUG][NWID %d][update_value] Clear active flag in old vertex %ld (addr=0x%lx) active=%ld", NETID, vid_op, flag_addr, val);
+            }
+            if (active == 0) {
+                num_pending = 2;
+                if (DEBUG_FLAG) {
+                    print("[DEBUG][NWID %d][update_value] Vertex %ld is inactive, skip update neighbors", NETID, vid_op);
+                }
+                yield;
+            }
+        }
+        if (DEBUG_UPDATE_FLAG) {
+            print("[DEBUG][NWID %d][update_value] Vertex %ld is active, update neighbors", NETID, vid_op);
+        }
+
+        num_pending = 0;
+        long max_fetch_size = MAX_FETCH_NLIST_SIZE;
+        long evw = evw_update_event(CEVNT, rd_nlist_return_update);
+        nlist_ptr = neighbors_op;
+        nlist_bound = neighbors_op + (deg_op << LOG2_WORD_SIZE);
+        
+        while (num_pending < deg_op) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, evw);
+            num_pending = num_pending + DRAM_MSG_SIZE;
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+            if (num_pending >= max_fetch_size) {
+                break;
+            }
+        }
+        num_pending = deg_op + 2;
+        if (DEBUG_UPDATE_FLAG) {
+            print("[DEBUG][NWID %d][update_value] Fetch vertex %ld neighbors %lu(0x%lx) and update active flag, pending_ack = %ld", NETID, vid_op, neighbors_op, neighbors_op, num_pending);
+        }
+        if (DEBUG_OUTPUT_FLAG) {
+            long *local tmp_lm_ptr = LMBASE + INPUT_GRAPH_PTR_OFFSET;
+            value_addr = *tmp_lm_ptr;
+            value_addr = value_addr + (vid << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+            long temp_value = 2;
+            send_dram_write(value_addr, temp_value, write_ack_evw);
+            if (DEBUG_FLAG) {
+                value_addr = value_addr - (WORD_SIZE * 4);
+                print("[DEBUG][NWID %d][update_value] Write active flag to old vertex %ld (addr=0x%lx) active=%ld", NETID, vid, value_addr, temp_value);
+            }
+            num_pending = num_pending + 1;
+        }
+
+        yield;
+    }
+
+    event rd_nlist_return_update(long e0, long e1, long e2, long e3, long e4, long e5, long e6, long e7, long* curr_nlist_addr) {
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][update_value] Read vid %ld nlist, current nlist_ptr=0x%lx nlist_bound=0x%lx", NETID, vid, curr_nlist_addr, nlist_bound);
+        }
+        if (nlist_ptr < nlist_bound) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, CEVNT);
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+        }
+
+        long* tmp_nlist_ptr = curr_nlist_addr;
+
+        unsigned long is_active = 1;
+        long* local tmp_lm_ptr = LMBASE + OUTPUT_GRAPH_PTR_OFFSET;
+        long* output_graph = *tmp_lm_ptr;
+
+        long *tmp_vertex_addr = output_graph + (e0 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e0, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e1 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e1, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e2 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e2, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e3 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e3, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e4 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e4, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e5 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e5, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e6 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e6, tmp_vertex_addr, is_active);
+        }
+
+        tmp_nlist_ptr = tmp_nlist_ptr + WORD_SIZE;
+        if (tmp_nlist_ptr >= nlist_bound) {
+            yield;
+        }
+        tmp_vertex_addr = output_graph + (e7 << VERTEX_LOG2_BSIZE) + (4 * WORD_SIZE);
+        send_dram_write(tmp_vertex_addr, is_active, write_ack_evw);
+        if (DEBUG_UPDATE_FLAG) {
+            tmp_vertex_addr = tmp_vertex_addr - (WORD_SIZE * 4);
+            print("[DEBUG][NWID %d][rd_nlist_return_update] Write active flag to vertex %ld (addr=0x%lx) active=%ld", NETID, e7, tmp_vertex_addr, is_active);
+        }
+
+    }
+
+    event write_value_ack(long* return_addr) {
+        if (DEBUG_DETAIL_FLAG) {
+            print("[DEBUG][NWID %d][write_value_ack] Write return from addr %lu(0x%lx) for vid %ld, pending_ack = %ld", NETID, return_addr, return_addr, vid, num_pending);
+        }
+        num_pending = num_pending - 1;
+        if (num_pending > 0) {
+            yield;
+        }
+        long evw = evw_update_event(CEVNT, kv_map_return);
+        send_event(evw, vid, num_pending, CEVNT);
+        yield;
+    }
+}
+
+
+thread InitUpDown {
+    long* local tmp_lm_ptr;
+
+    event init(long unsigned*partition_array, long NUM_PARTITION_PER_LANE, long num_lanes, long unsigned *input_vertices, long num_vertices, long unsigned* output_vertices, double epsilon) {
+
+        if (DEBUG_FLAG) {
+            print("Top parameters: partition_array=0x%lX, num_lanes=%ld, input_vertices_ptr=0x%lX, output_vertices_ptr=0x%lX", partition_array, num_lanes, input_vertices, output_vertices);
+        }
+
+        long unsigned* local send_buffer = LMBASE + SEND_BUFFER_OFFSET;
+        send_buffer[0] = partition_array;
+        send_buffer[1] = NUM_PARTITION_PER_LANE;
+        send_buffer[2] = num_lanes;
+
+        tmp_lm_ptr = LMBASE + INPUT_KVSET_META_DATA_OFFSET;
+        tmp_lm_ptr[0] = input_vertices;
+        tmp_lm_ptr[1] = num_vertices;
+        tmp_lm_ptr[2] = input_vertices;
+        tmp_lm_ptr[3] = output_vertices;
+        send_buffer[3] = tmp_lm_ptr;
+        double *local tmp_eps_ptr = LMBASE + EPSILON_OFFSET;
+        *tmp_eps_ptr = epsilon;
+
+        long evw = evw_new(NETID, PageRankPullDD::map_shuffle_reduce);
+        send_event(evw, send_buffer, 4, terminate);
+
+        tmp_lm_ptr = LMBASE + TOP_SYNC_OFFSET;
+        *tmp_lm_ptr = 0;
+    }
+
+    event terminate(long num_lanes, long value) {
+        print("PageRank MSR returns current active set volumn = %lu.", value);
+        *tmp_lm_ptr = 1;
+        yield_terminate;
+    }
+}

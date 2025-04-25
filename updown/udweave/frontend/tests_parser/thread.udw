@@ -1,0 +1,52 @@
+
+// Empty thread
+thread thread1 {}
+
+// Thread with declaration
+thread thread2 {
+    int a;
+}
+
+// Thread with multiple declaration
+thread thread2 {
+    int a;
+    long b;
+    float c;
+    double d;
+}
+
+// Thread with event, no declarations
+thread thread3 {
+    event a() {}
+}
+
+// Thread with multiple events
+thread thread4 {
+    event a() {}
+    event b() {}
+}
+
+
+// Thread with declarations and events
+thread thread5 {
+    int a;
+    long b;
+    float c;
+    double d;
+
+    event a() {}
+    event b() {}
+}
+
+// Thread with declarations and events
+thread thread5 {
+    int a;
+    long b;
+    float c;
+    double d;
+
+    event a() {
+        int ee;
+    }
+    event b() {}
+}

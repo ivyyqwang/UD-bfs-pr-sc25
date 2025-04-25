@@ -1,0 +1,251 @@
+####################################################################################################
+############################### Instruction Set For UPDOWN ISA V2.2 ################################
+####################################################################################################
+## This file describes the different instructions in the UpDown ISA
+## This is interpreted by the linker to be able to search for symbols that need to be Linked
+## The general instruction syntax is:
+## instruction : opcode operand_list
+##
+## operand_list is a comma separated list of operands that may have the following syntax:
+##
+## operand_list : operand | operand_group | variable_operand
+## operand_group : (operand_list)
+## variable_operand : <operand_list>
+## operand : register | immediate
+## register : X[0-9]+
+## immediate : $[a-zA-Z][a-zA-Z0-9_]*
+
+## I-Type
+addi Xs, Xd, $imm
+subi Xs, Xd, $imm
+muli Xs, Xd, $imm
+divi Xs, Xd, $imm
+clt Xs, Xd, $imm
+cgt Xs, Xd, $imm
+ceq Xs, Xd, $imm
+andi Xs, Xd, $imm
+ori Xs, Xd, $imm
+movir Xd, $imm
+put2i Xs, $bytes
+put1i Xs, $bytes
+yield
+yieldt
+sli Xs, Xd, $shift
+sri Xs, Xd, $shift
+slor Xs, Xd, $shift
+sror Xs, Xd, $shift
+sland Xs, Xd, $shift
+srand Xs, Xd, $shift
+srri Xs, Xd, $shift
+hashsb32 Xd, $HTBASE
+hashsb64 Xs, Xd
+hashlm64 Xs, Xd
+hash Xe, Xd
+hashlm Xe, Xd, $wordstohash
+copyi Xs, Xd, $length
+movsbr Xd
+movipr Xd
+movlmsb Xs
+siw $width
+refill $imm
+ssprop $property
+
+
+## S-Type
+saddi Xs, Xd, $shift, $imm
+ssubi Xs, Xd, $shift, $imm
+slori Xs, Xd, $shift, $imm
+srori Xs, Xd, $shift, $imm
+slandi Xs, Xd, $shift, $imm
+srandi Xs, Xd, $shift, $imm
+putb Xs, $len, $bits
+getb Xs, Xd, $len
+fstate $state_ident, $property
+cswpi X1, X2, $imm1, $imm2
+move $imm(Xs), Xd, $inc_flag, $bytes
+move Xs, $imm(Xd), $inc_flag, $bytes
+swiz Xd, Xs
+bcopsi Xop1, Xd, $numops
+
+
+## R-Type
+add Xs, Xt, Xd
+sub Xs, Xt, Xd
+mul Xs, Xt, Xd
+div Xs, Xt, Xd
+mod Xs, Xt, Xd
+andr Xs, Xt, Xd
+orr Xs, Xt, Xd
+crlt Xs, Xt, Xd
+crgt Xs, Xt, Xd
+creq Xs, Xt, Xd
+crstr Xs, Xt, Xd
+sr Xs, Xt, Xd
+sl Xs, Xt, Xd
+srr Xs, Xt, Xd
+copy Xs, Xt, Xd
+movrr Xs, Xt, Xd
+movew Xb(Xs, $inc_flag, $scale), Xd
+movew Xs, Xb(Xd, $inc_flag, $scale)
+bcops Xop, Xd, Xnumops
+
+
+## B-Type
+bne X1, X2, $target
+beq X1, X2, $target
+bgt X1, X2, $target
+ble X1, X2, $target
+bneu X1, X2, $target
+bequ X1, X2, $target
+bgtu X1, X2, $target
+bleu X1, X2, $target
+bnei X1, $imm, $target
+beqi X1, $imm, $target
+bgti X1, $imm, $target
+blei X1, $imm, $target
+blti X1, $imm, $target
+bgei X1, $imm, $target
+bneiu X1, $imm, $target
+beqiu X1, $imm, $target
+bgtiu X1, $imm, $target
+bleiu X1, $imm, $target
+bltiu X1, $imm, $target
+bgeiu X1, $imm, $target
+
+
+## J-Type
+jmp $target
+
+
+## M1-Type
+send Xe, Xc, Xptr, $len, $mode
+sendb Xe, Xc, Xptr, $len, $mode
+
+
+## M2-Type
+sendm Xe, Xd, Xc, Xptr, $len, $mode
+sendmb Xe, Xd, Xc, Xptr, $len, $mode
+
+
+## M3-Type
+sendr Xe, Xc, X1, X2, X3, $mode
+sendmr Xe, Xd, Xc, X1, X2, $mode
+
+
+## M4-Type
+sendops Xe, Xc, Xop, $numops, $mode
+sendmops Xe, Xd, Xc, Xop, $numops, $mode
+
+
+## E-Type
+ev1 Xs, Xd, $imm1, $select
+ev2 Xd, $imm1, $imm2, $select
+evl Xd, $imm1, $select
+
+
+## R4-Type
+evr Xs, Xd, Xop1, Xop2, $mask
+cswp X1, X2, X3, X4
+
+
+
+## Old names
+addi Xs, Xd, $imm
+subi Xs, Xd, $imm
+muli Xs, Xd, $imm
+divi Xs, Xd, $imm
+comp_lt Xs, Xd, $imm
+comp_gt Xs, Xd, $imm
+comp_eq Xs, Xd, $imm
+andi Xs, Xd, $imm
+ori Xs, Xd, $imm
+mov_imm2reg Xd, $imm
+put_2bytes_imm Xs, $bytes
+put_1byte_imm Xs, $bytes
+yield
+yield_terminate
+lshift Xs, Xd, $shift
+rshift Xs, Xd, $shift
+lshift_or Xs, Xd, $shift
+rshift_or Xs, Xd, $shift
+lshift_and Xs, Xd, $shift
+rshift_and Xs, Xd, $shift
+arithrshift Xs, Xd, $shift
+hash_sb32 Xd, $HTBASE
+hash_sb64 Xs, Xd
+hash_lm64 Xs, Xd
+hash Xe, Xd
+hash_lm Xe, Xd, #wordstohash
+copy_imm Xs, Xd, $length
+mov_sb2reg Xd
+mov_uip2reg Xd
+mov_lm2sb Xs
+set_issue_width $width
+refill $imm
+set_state_property $property
+saddi Xs, Xd, $shift, $imm
+ssubi Xs, Xd, $shift, $imm
+lshift_or_imm Xs, Xd, $shift, $imm
+rshift_or_imm Xs, Xd, $shift, $imm
+lshift_and_imm Xs, Xd, $shift, $imm
+rshift_and_imm Xs, Xd, $shift, $imm
+put_bits Xs, $len, $bits
+get_bits Xs, Xd, $len
+fork_state $state_ident, $property
+cmpswpi X1, X2, $imm1, $imm2
+move $imm(Xs), Xd, $inc_flag, $bytes
+move Xs, $imm(Xd), $inc_flag, $bytes
+Swizzle Xd, Xs
+bcopy_ops Xop1, Xd, $numops
+add Xs, Xt, Xd
+sub Xs, Xt, Xd
+mul Xs, Xt, Xd
+andr Xs, Xt, Xd
+orr Xs, Xt, Xd
+compreg_lt Xs, Xt, Xd
+compreg_gt Xs, Xt, Xd
+compreg_eq Xs, Xt, Xd
+compare_string Xs, Xt, Xd
+rshift_t Xs, Xt, Xd
+lshift_t Xs, Xt, Xd
+arithrshift_t Xs, Xt, Xd
+copy Xs, Xt, Xd
+mov_reg2reg Xs, Xd
+move_word Xb(Xs, $inc_flag, $scale), Xd
+move_word Xs, Xb(Xd, $inc_flag, $scale)
+bcopy_ops Xop1, Xd, Xnumops
+bne X1, X2, $target
+beq X1, X2, $target
+bgt X1, X2, $target
+ble X1, X2, $target
+bnec X1, $imm, $target
+beqc X1, $imm, $target
+bgtc X1, $imm, $target
+blec X1, $imm, $target
+jmp $target
+send Xe, Xd, Xc, Xptr, $len, $mode
+send4 Xe, Xd, Xc, Xop1, Xop2, $mode
+sendops Xe, Xd, Xc, Xop1, $numops, $mode
+ev_update_1 Xs, Xd, $imm1, $mask
+ev_update_2 Xd, $imm1, $imm2, $mask
+ev_update_reg_2 Xs, Xd, Xop1, Xop2, $mask
+cmpswp X1, X2, X3, X4
+
+## Pseudoinstructions
+send_wcont Xe, Xc, Xptr, $len
+sendr_wcont Xe, Xc, Xop1, Xop2
+sendops_wcont Xe, Xc, Xop1, $numops
+send_wret Xe, $cont_label, Xptr, $len
+sendr_wret Xe, $cont_label, Xop1, Xop2
+sendops_wret Xe, $cont_label, Xop1, $numops
+send_dmlm_ld Xd, Xc, $len
+send_dmlm_ld_wret Xd, $cont_label, $len
+send_dmlm Xd, Xc, Xptr, $len
+sendr_dmlm Xd, Xc, Xop1, Xop2
+send_dmlm_wret Xd, $cont_label, Xptr, $len
+sendr_dmlm_wret Xd, $cont_label, Xop1, Xop2
+sendops_dmlm_wret Xd, $cont_label, Xop1, $numops
+send_reply Xptr, $len 
+sendr_reply Xop1, Xop2 
+send_any_wcont Xe, Xd, Xc, Xptr, <X1, X2... Xn>
+send_any_wret Xe, Xd, $cont, Xptr, <X1, X2... Xn>

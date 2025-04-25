@@ -1,0 +1,20 @@
+#ifndef __LM_STATIC_MAP_H__
+#define __LM_STATIC_MAP_H__
+
+
+#define TOP_FLAG_OFFSET     0
+#define SEND_BUFFER_OFFSET  8
+#define PGA_0_OFFSET        128
+#define PGA_1_OFFSET        384
+#define UDKVMSR_0_OFFSET    640
+#define UDKVMSR_1_OFFSET    896
+#define SHT_0_OFFSET        1152
+#define SHT_1_OFFSET        1216
+#define SHT_2_OFFSET        1280
+#define SHT_3_OFFSET        1344
+#define PGA_DO_ALL_0_OFFSET 1408
+#define CACHE_0_OFFSET      1472
+
+#define HEAP_OFFSET         1600
+
+#endif

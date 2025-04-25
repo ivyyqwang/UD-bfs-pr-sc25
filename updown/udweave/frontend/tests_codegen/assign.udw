@@ -1,0 +1,14 @@
+thread thread1 {
+    // arithmetic
+    event a() {
+        int b;
+        int c;
+        int d = 0;
+        int e = 8;
+        b = 4;
+        e = b;
+        // Literals
+        e = e+b;
+        c = (e+b)*(c-d)/2;
+    }
+}

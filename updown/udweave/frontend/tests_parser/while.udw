@@ -1,0 +1,11 @@
+thread thread1 {
+    // While
+    event a() {
+        while (a+b) {
+        }
+
+        while (a+b) {
+            int a;
+        }
+    }
+}

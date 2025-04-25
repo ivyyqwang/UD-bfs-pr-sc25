@@ -1,0 +1,10 @@
+thread thread1 {
+    event event1() {
+        int * local ptr;
+        int a;
+        a = ptr[10];
+        ptr[0] = a;
+        *ptr = a;
+        a = ptr[a + 1];
+    }
+}

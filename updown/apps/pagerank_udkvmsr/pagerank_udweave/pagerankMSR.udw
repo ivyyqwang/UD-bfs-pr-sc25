@@ -1,0 +1,244 @@
+#define TOP_SYNC_OFFSET 0
+#define SEND_BUFFER_OFFSET 8
+#define KVMSR_META_DATA_OFFSET (640)
+#define vertices_META_DATA_OFFSET (768)
+#define GRAPH_PTR_OFFSET (768)
+#define values_META_DATA_OFFSET (832)
+
+#define MAX_FETCH_NLIST_SIZE (16)
+#define WORD_SIZE (8)
+#define LOG2_WORD_SIZE (3)
+#define DRAM_MSG_SIZE (8)
+#define DRAM_MSG_BSIZE (64)
+
+#define DEBUG_FLAG 0
+
+extern event PageRankMSR::kv_map_emit();
+extern event PageRankMSR::kv_map_return();
+extern event PageRankMSR::map_shuffle_reduce();
+
+thread PageRankMSR {
+    long vid;
+    long degree;
+    long* nlist_ptr;
+
+    double out_value;
+    long* nlist_bound;
+    long num_processed;
+    long emit_evw;
+    
+    event kv_map(long vid_op, long deg_op, long *neighbors_op, double val_op, long* vertex_addr) {
+
+        if (DEBUG_FLAG) {
+            print("[DEBUG][NWID %d][kv_map] Vertex %ld (addr=0x%lx) degree=%ld nlist_ptr=0x%lx val=%ld", NETID, vid_op, vertex_addr, deg_op, neighbors_op, val_op);
+        }
+        vid = vid_op;
+        degree = deg_op;
+
+        // The vertex has degree 0, skip it
+        if (deg_op == 0) {
+            if (DEBUG_FLAG) {
+                print("[DEBUG][NWID %d][kv_map] Vertex %ld has degree 0, return to UDKVMSR", NETID, vid_op);
+            }
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            yield;
+        }
+
+        nlist_bound = neighbors_op + (deg_op << LOG2_WORD_SIZE);
+        nlist_ptr = neighbors_op;
+
+        long evw = evw_update_event(CEVNT, rd_nlist_return);
+        long max_num_fetch = MAX_FETCH_NLIST_SIZE;
+        
+        while (nlist_ptr < nlist_bound) {
+            send_dram_read(nlist_ptr, DRAM_MSG_SIZE, evw);
+            nlist_ptr = nlist_ptr + DRAM_MSG_BSIZE;
+        }
+
+        double deg = deg_op;
+        out_value = val_op / deg;
+        num_processed = 0;
+        emit_evw = evw_new(NETID, kv_map_emit);
+    }
+
+    event rd_nlist_return(long e0, long e1, long e2, long e3, long e4, long e5, long e6, long e7, long* curr_nlist_addr) {
+        if (DEBUG_FLAG) {
+            print("Map task on vertex %ld receieve nlist starting from 0x%lx, num_processed_edges=%ld", vid, curr_nlist_addr, num_processed);
+        }
+
+        long* tmp_nlist_ptr = curr_nlist_addr;
+
+        send_event(emit_evw, e0, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e1, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e2, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e3, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e4, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e5, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e6, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+        if (tmp_nlist_ptr >= nlist_bound) {
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+            }
+            yield;
+        }
+
+        send_event(emit_evw, e7, out_value, IGNRCONT);
+        num_processed = num_processed + 1;
+        if (num_processed == degree) {
+            long evw = evw_update_event(CEVNT, kv_map_return);
+            send_event(evw, vid, CEVNT);
+            if (DEBUG_FLAG) {
+                print("Map task on vertex %ld finished, num_processed=%ld", vid, num_processed);
+            }
+            yield;
+        }
+
+        if (DEBUG_FLAG) {
+            print("Map task on vertex %ld processed nlist starting from 0x%lx, num_processed_edges=%ld", vid, tmp_nlist_ptr, num_processed);
+        }
+        yield;
+
+    }
+}
+
+thread InitUpDown {
+    long* local tmp_lm_ptr;
+
+    event init(long unsigned*partition_array, long NUM_PARTITION_PER_LANE, long num_lanes, long unsigned *vertices, long num_vertices, long unsigned* values, long num_values) {
+
+        print("Top parameters: partition_array=0x%lX, num_lanes=%ld, vertices=0x%lX, values=0x%lX", partition_array, num_lanes, vertices, values);
+
+        long unsigned* local send_buffer = LMBASE + SEND_BUFFER_OFFSET;
+        send_buffer[0] = partition_array;
+        send_buffer[1] = NUM_PARTITION_PER_LANE;
+        send_buffer[2] = num_lanes;
+
+        tmp_lm_ptr = LMBASE + vertices_META_DATA_OFFSET;
+        tmp_lm_ptr[0] = vertices;
+        tmp_lm_ptr[1] = num_vertices;
+        send_buffer[3] = tmp_lm_ptr;
+
+        tmp_lm_ptr = LMBASE + values_META_DATA_OFFSET;
+        tmp_lm_ptr[0] = values;
+        tmp_lm_ptr[1] = num_values;
+        send_buffer[4] = tmp_lm_ptr;
+        
+        long evw = evw_new(NETID, PageRankMSR::map_shuffle_reduce);
+        send_event(evw, send_buffer, 5, terminate);
+
+        tmp_lm_ptr = LMBASE + TOP_SYNC_OFFSET;
+        *tmp_lm_ptr = 0;
+    }
+
+    event terminate() {
+        print("PageRank Map Shuffle Reduce returned. Finish updown execution and return to top.");
+        *tmp_lm_ptr = 1;
+        yield_terminate;
+    }
+}

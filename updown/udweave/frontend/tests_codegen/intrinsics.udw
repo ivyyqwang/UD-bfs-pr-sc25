@@ -1,0 +1,68 @@
+/* RUN: %udweave -i %s --weave-ir -o %t | filecheck %s < %t
+*/
+
+thread thread1 {
+    event event1() {
+        int a;
+        long ew;
+        int nid;
+        int * local data;
+        int * dataDRAM;
+        send_event(CEVNT, data, 4, CEVNT);
+        send_event(CEVNT, a, CEVNT);
+        send_event(CEVNT, a, 4, CEVNT);
+        send_event(CEVNT, a, a, 4, CEVNT);
+        send_event(CEVNT, data, 4, event1);
+        send_event(CEVNT, a, event1);
+        send_event(CEVNT, a, 4, event1);
+        send_event(CEVNT, a, a, 4, event1);
+        send_dram_read(dataDRAM, 4, CEVNT);
+        send_dram_read(dataDRAM, 4, event1);
+        send_dram_write(dataDRAM, data, 4, CEVNT);
+        send_dram_write(dataDRAM, a, CEVNT);
+        send_dram_write(dataDRAM, a, a, CEVNT);
+        send_dram_write(dataDRAM, data, 4, event1);
+        send_dram_write(dataDRAM, a, event1);
+        send_dram_write(dataDRAM, a, a, event1);
+        
+        ew = evw_new(NETID, event1, 1);
+        ew = evw_update_netid(ew, NETID);
+        ew = evw_update_event(ew, event1, 1);
+        ew = evw_update_thread(ew, NEWTH);
+        nid = netid_new(1,2,3,4);
+        nid = netid_update_lid(NETID, 0x11);
+        nid = netid_update_lid(NETID, a);
+        nid = netid_update_udid(NETID, 0x3);
+        nid = netid_update_udid(NETID, a);
+        nid = netid_update_cid(NETID, 0x3);
+        nid = netid_update_cid(NETID, a);
+        nid = netid_update_nid(NETID, 0x33);
+        nid = netid_update_nid(NETID, a);
+        print("Heree %s", nid);
+        print("Heree %s - %s", nid, 5);
+    }
+
+    event event2(int a, int b, int c) {
+        int * local data = LMBASE;
+        int numOps = 3;
+
+        copyOperands(a, data, 2);
+        copyOperands(b, data, 2);
+        copyOperands(c, data, 1);
+        copyOperands(a, data, numOps);
+        numOps = 2;
+        copyOperands(b, data, numOps);
+    }
+
+    event event3(int a, int b, int c) {
+        int * local data = LMBASE;
+        int numOps = 3;
+
+        copyOperands(a, data, 2);
+        copyOperands(b, data, 2);
+        copyOperands(c, data, 1);
+        copyOperands(a, data, numOps);
+        numOps = 2;
+        copyOperands(b, data, numOps);
+    }
+}

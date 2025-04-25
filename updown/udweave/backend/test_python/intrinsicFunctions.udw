@@ -1,0 +1,40 @@
+thread thread1 {
+    event event1() {
+        int a;
+        int b;
+        long ew;
+        int nid;
+        int * local data;
+        int * dataDRAM;
+        send_event(CEVNT, data, 4, CCONT);
+        send_event(CEVNT, a, 4, a, CCONT);
+        send_event(CEVNT, a, 4, CCONT);
+        send_event(CEVNT, b, CCONT);
+        send_event(CEVNT, data, 4, event1);
+        send_event(CEVNT, a, 4, b, event1);
+        send_event(CEVNT, a, 4, event1);
+        send_event(CEVNT, b, event1);
+        send_dram_read(dataDRAM, 4, CEVNT);
+        send_dram_read(dataDRAM, 4, event1);
+        send_dram_write(dataDRAM, data, 4, CEVNT);
+        send_dram_write(dataDRAM, a, 4, CEVNT);
+        send_dram_write(dataDRAM, b, 4, CEVNT);
+        send_dram_write(dataDRAM, data, 4, event1);
+        send_dram_write(dataDRAM, a, 4, event1);
+        send_dram_write(dataDRAM, b, 4, event1);
+        
+        ew = evw_new(NETID, event1, 1);
+        ew = evw_update_netid(ew, NETID);
+        ew = evw_update_event(ew, event1, 0);
+        ew = evw_update_thread(ew, NEWTH);
+        nid = netid_new(1,2,3,4);
+        nid = netid_update_lid(NETID, 0x11);
+        nid = netid_update_lid(NETID, a);
+        nid = netid_update_udid(NETID, 0x3);
+        nid = netid_update_udid(NETID, a);
+        nid = netid_update_cid(NETID, 0x3);
+        nid = netid_update_cid(NETID, a);
+        nid = netid_update_nid(NETID, 0x33);
+        nid = netid_update_nid(NETID, a);
+    }
+}
