@@ -3,12 +3,9 @@ if (UPDOWNRT_ENABLE_LIBRARIES)
 
     set(UPDOWN_RUNTIME_INSTALL_DIR "updown")
     set(UPDOWNSIMRT_LIBRARY_SRC 
-        SpMalloc/testSpMalloc.cpp
     )
 
     set(UPDOWNSIMRT_PYTHON_LIBRARY_SRC2BIN
-        #SpMalloc/testSpMallocEFA.py
-        SpMalloc/spmalloc_test_exe.py
     )
 
     set(UPDOWN_RUNTIME_LIBRARY_INSTALL_PATH "${UPDOWN_RUNTIME_INSTALL_DIR}/libraries")

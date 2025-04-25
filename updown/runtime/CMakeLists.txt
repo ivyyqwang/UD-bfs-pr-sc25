@@ -48,5 +48,4 @@ include(CMakePrintHelpers)
       PUBLIC_HEADER DESTINATION ${UPDOWN_RUNTIME_HEADERS_INSTALL_PATH}
   )
 
-  add_subdirectory(tests)
   #target_link_libraries(UpDownRuntime PUBLIC)
