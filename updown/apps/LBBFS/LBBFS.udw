@@ -1,0 +1,3131 @@
+#include "LMStaticMap.udwh"
+
+
+// A macro which declares a local pointer and writes a 1 to the address
+// LMBASE + TOP_FLAG_OFFSET indicating to the TOP core, that we completed
+// UpDown program execution.
+#define EXIT                                                                   \
+  unsigned long *local spPtrExit = LMBASE;                                     \
+  spPtrExit[TOP_FLAG_OFFSET] = 1
+
+#define args_scratch_space (LMBASE + (HEAP_OFFSET + 64))
+
+
+
+
+
+#define FAKE_SPREAD_LANES(lane) ((lane) << 5)
+#define FAKE_COMBINE_LANES(lane) ((lane) >> 5)
+
+// #define FAKE_SPREAD_LANES(lane) (lane)
+// #define FAKE_COMBINE_LANES(lane) (lane)
+
+#define vertex_size (8 * sizeof(long))
+
+
+#define UNSIGNED_LONG_MAX 0xFFFFFFFFFFFFFFFF
+
+// #define ENABLE_SEND_TO_SHORTEST 1
+
+#define ENABLE_ASSERTS 0
+
+#if ENABLE_ASSERTS == 1
+#define ASSERT_UDW_NON_ZERO(value)                                             \
+  if ((value) == 0) {                                                          \
+    print(#value " had a value of zero, required nonzero");                    \
+    asm {"divi X16 X16 0"}                                                     \
+    ;                                                                          \
+  }
+#define ASSERT_UDW_EQUAL(v1, v2)                                               \
+  if ((v1) != (v2)) {                                                          \
+    print(#v1 " did not equal " #v2);                                          \
+    print(#v1 " = %d, " #v2 " = %d", v1, v2);                                  \
+    asm {"divi X16 X16 0"}                                                     \
+    ;                                                                          \
+  }
+#define ASSERT_UDW_ZERO(value)                                                 \
+  if ((value) != 0) {                                                          \
+    print(#value " did not had a value of zero, required zero");               \
+    asm {"divi X16 X16 0"}                                                     \
+    ;                                                                          \
+  }
+#define ASSERT_UDW_NON_NEGATIVE(value)                                         \
+  if ((value) < 0) {                                                           \
+    print(#value " had a value of %d, required non negative", value);          \
+    asm {"divi X16 X16 0"}                                                     \
+    ;                                                                          \
+  }
+#else
+#define ASSERT_UDW_NON_ZERO(value)                                             \
+  if (1) {                                                                     \
+  }
+#define ASSERT_UDW_EQUAL(v1, v2)                                               \
+  if (1) {                                                                     \
+  }
+#define ASSERT_UDW_ZERO(value)                                                 \
+  if (1) {                                                                     \
+  }
+#define ASSERT_UDW_NON_NEGATIVE(value)                                         \
+  if (1) {                                                                     \
+  }
+#endif
+
+
+
+
+extern event DRAMalloc::dramalloc();
+
+// TODO(wheatman) optimize
+#define max_outstanding_read_requests_nondet 10
+
+// TODO(wheatman) optimize
+#define SWITCH_TO_SPLIT_2 2048
+
+#define VERTEX_WORK_FACTOR 8
+
+#define FORCE_FIRST_NODE 0
+
+#define array_load(array, offset, scale, size, cont)                           \
+  if (1) {                                                                     \
+    send_dram_read((array) + (offset * scale), size, cont);                    \
+  }
+
+#define array_load8(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+    array_load(array, base_var_offset##3, scale, size, cont);                  \
+    array_load(array, base_var_offset##4, scale, size, cont);                  \
+    array_load(array, base_var_offset##5, scale, size, cont);                  \
+    array_load(array, base_var_offset##6, scale, size, cont);                  \
+    array_load(array, base_var_offset##7, scale, size, cont);                  \
+  }
+#define array_load7(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+    array_load(array, base_var_offset##3, scale, size, cont);                  \
+    array_load(array, base_var_offset##4, scale, size, cont);                  \
+    array_load(array, base_var_offset##5, scale, size, cont);                  \
+    array_load(array, base_var_offset##6, scale, size, cont);                  \
+  }
+#define array_load6(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+    array_load(array, base_var_offset##3, scale, size, cont);                  \
+    array_load(array, base_var_offset##4, scale, size, cont);                  \
+    array_load(array, base_var_offset##5, scale, size, cont);                  \
+  }
+#define array_load5(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+    array_load(array, base_var_offset##3, scale, size, cont);                  \
+    array_load(array, base_var_offset##4, scale, size, cont);                  \
+  }
+#define array_load4(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+    array_load(array, base_var_offset##3, scale, size, cont);                  \
+  }
+#define array_load3(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+    array_load(array, base_var_offset##2, scale, size, cont);                  \
+  }
+#define array_load2(array, base_var_offset, scale, size, cont)                 \
+  if (1) {                                                                     \
+    array_load(array, base_var_offset##0, scale, size, cont);                  \
+    array_load(array, base_var_offset##1, scale, size, cont);                  \
+  }
+
+thread EM_SPARSE_NON_DETERMINISTIC {
+
+  // vertexs is an arrays of vertex structs, each element is
+  // [dests <pointer to edges, aligned memory>,
+  //  degree,
+  //  prefix sum of edge counts,
+  //  vertex_id < what position in the list we are>
+  // ]
+
+  unsigned long M;
+
+  unsigned long child_event;
+
+  // TODO(wheatman) two arguments here might be algorithm specific
+  event start(unsigned long N, unsigned long M_, unsigned long *vertexs,
+              unsigned long *graph_, unsigned long num_lanes) {
+    M = M_;
+    print("start EM_SPARSE_NON_DETERMINISTIC: start iter, N = %ld, M = %ld", N,
+          M);
+    unsigned long *local args = args_scratch_space;
+    args[0] = N;
+    args[1] = M;
+    args[2] = vertexs;
+    args[3] = graph_;
+    args[4] = 0;
+    args[5] = (FAKE_SPREAD_LANES(num_lanes) << 32) | 0;
+    args[6] = 0;
+
+    unsigned long evwWord;
+    if (num_lanes > SWITCH_TO_SPLIT_2) {
+      evwWord = evw_new(0, split_vertexsEM_SPARSE_NON_DETERMINISTIC::phase1);
+    } else {
+      evwWord = evw_new(0, split_vertexs2EM_SPARSE_NON_DETERMINISTIC::phase1);
+    }
+    unsigned long continuationWord = evw_update_event(CEVNT, phase2);
+    send_event(evwWord, args, 7, continuationWord);
+  }
+
+  event phase2(unsigned long child) {
+    if (M == 0 || child == 0) {
+      send_event(evw_update_event(CEVNT, phase2_done), 0, 0, 0, IGNRCONT);
+      yield;
+    }
+    print("phase2");
+
+    unsigned long continuationWord = evw_update_event(CEVNT, phase2_done);
+    send_event(child, 0, continuationWord);
+  }
+
+  event phase2_done(unsigned long next_frontier_N,
+                    unsigned long next_frontier_M, unsigned long child) {
+    print("phase2_done, %ld, %ld", next_frontier_N, next_frontier_M);
+    child_event = child;
+    // return to top to call dram alloc for the frontier
+    unsigned long *local args = args_scratch_space;
+    args[0] = TID;
+    args[1] = next_frontier_N;
+    args[2] = next_frontier_M;
+    EXIT;
+    yield;
+  }
+  event phase3(unsigned long *frontier, unsigned long iteration_number) {
+    print("phase3");
+    if (M == 0 || child_event == 0) {
+      send_event(evw_update_event(CEVNT, done), M, IGNRCONT);
+      yield;
+    }
+    unsigned long prefix_edges = 0;
+    send_event(child_event, frontier, prefix_edges, iteration_number,
+               evw_update_event(CEVNT, done));
+  }
+
+  event done() {
+    print("done EM_SPARSE_NON_DETERMINISTIC: stop iter");
+    // Inform the top core that we are done. The preprocessor replaces
+    // this macro with its code above.
+    EXIT;
+
+    // kill this thread, release thread context
+    yield_terminate;
+  }
+}
+
+// TODO(wheatman) get this defined in terms of macros, but for now need the
+// registers
+#define child_data_location (LMBASE + (((1600 + 64) + 128) + 128))
+// 8 children each with three words of data each taking 8 bytes
+// can also be 6 children each with 4 words of data each taking 8 bytes
+#define DATA_PER_THREAD (8 * 3 * 8)
+#define get_child_event(child, num)                                            \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    child = args_UNIQUE_ID[0 + (num * 3)];                                     \
+  }
+
+#define local_child_data_ptr(ptr)                                              \
+  if (1) {                                                                     \
+    ptr = child_data_location;                                                 \
+    ptr = ptr + (TID * DATA_PER_THREAD);                                       \
+  }
+
+#define ref_child_event(ptr, num) ptr[0 + (num * 3)]
+
+#define set_child_event(child, num)                                            \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    args_UNIQUE_ID[0 + (num * 3)] = child;                                     \
+  }
+
+#define set_child_event_vertex_and_edge_count(child, v_count, e_count, num)    \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    args_UNIQUE_ID[0 + (num * 3)] = child;                                     \
+    args_UNIQUE_ID[1 + (num * 3)] = v_count;                                   \
+    args_UNIQUE_ID[2 + (num * 3)] = e_count;                                   \
+  }
+
+#define get_child_event_vertex_count_and_edge_count(child, v_count, e_count,   \
+                                                    num)                       \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    child = args_UNIQUE_ID[0 + (num * 3)];                                     \
+    v_count = args_UNIQUE_ID[1 + (num * 3)];                                   \
+    e_count = args_UNIQUE_ID[2 + (num * 3)];                                   \
+  }
+
+#define get_child_event_sum_prev_vertex_count_and_edge_count(child, v_count,   \
+                                                             e_count, num)     \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    child = args_UNIQUE_ID[0 + (num * 3)];                                     \
+    v_count = v_count + args_UNIQUE_ID[1 + ((num - 1) * 3)];                   \
+    e_count = e_count + args_UNIQUE_ID[2 + ((num - 1) * 3)];                   \
+  }
+
+#define get_child_vertex_and_edge_count(v_count, e_count, num)                 \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    v_count = args_UNIQUE_ID[1 + (num * 3)];                                   \
+    e_count = args_UNIQUE_ID[2 + (num * 3)];                                   \
+  }
+
+#define set_child_vertex_and_edge_count(v_count, e_count, num)                 \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    args_UNIQUE_ID[1 + (num * 3)] = v_count;                                   \
+    args_UNIQUE_ID[2 + (num * 3)] = e_count;                                   \
+  }
+
+#define sum_child_vertex_and_edge_count_8(v_count, e_count)                    \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    v_count = v_count + args_UNIQUE_ID[1 + (0 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (0 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (1 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (1 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (2 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (2 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (3 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (3 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (4 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (4 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (5 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (5 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (6 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (6 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (7 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (7 * 3)];                           \
+  }
+
+#define sum_child_vertex_and_edge_count_2(v_count, e_count)                    \
+  if (1) {                                                                     \
+    unsigned long *local args_UNIQUE_ID = child_data_location;                 \
+    args_UNIQUE_ID = args_UNIQUE_ID + (TID * DATA_PER_THREAD);                 \
+    v_count = v_count + args_UNIQUE_ID[1 + (0 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (0 * 3)];                           \
+    v_count = v_count + args_UNIQUE_ID[1 + (1 * 3)];                           \
+    e_count = e_count + args_UNIQUE_ID[2 + (1 * 3)];                           \
+  }
+
+thread split_vertexsEM_SPARSE_NON_DETERMINISTIC {
+
+  unsigned long N;
+  unsigned long counter;
+
+  long M;
+  unsigned long lane_info;
+
+  unsigned long *vertexs;
+  unsigned long *graph;
+  unsigned long edges_to_left_of_start;
+  unsigned long depth;
+
+  // M is the number of edges in my region
+
+  event phase1(unsigned long N_, long M_, unsigned long *vertexs_,
+               unsigned long *graph_, unsigned long edges_to_left_of_start_,
+               unsigned long lane_info_, unsigned long depth_) {
+    // print("N = %d, M = %d, lane_info = %lx, depth = %d, CCONT = %lx", N_, M_,
+    //       lane_info_, depth_, CCONT);
+
+    ASSERT_UDW_NON_NEGATIVE(M_);
+
+    if (N_ == 0 || M_ == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+
+    // print("depth = %d", depth_);
+    depth = depth_ + 1;
+    lane_info = lane_info_;
+    graph = graph_;
+
+    if (N_ == 1) {
+      send_dram_read(vertexs_, 4, after_load_vertex_offsets_single);
+      yield;
+    }
+    M = M_;
+
+    N = N_;
+
+    vertexs = vertexs_;
+
+    if (N <= 8) {
+      unsigned long *local ptr;
+      local_child_data_ptr(ptr);
+      send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom0);
+      vertexs = vertexs + vertex_size;
+      send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom1);
+      if (N > 2) {
+        vertexs = vertexs + vertex_size;
+        send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom2);
+        if (N > 3) {
+          vertexs = vertexs + vertex_size;
+          send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom3);
+          if (N > 4) {
+            vertexs = vertexs + vertex_size;
+            send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom4);
+            if (N > 5) {
+              vertexs = vertexs + vertex_size;
+              send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom5);
+              if (N > 6) {
+                vertexs = vertexs + vertex_size;
+                send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom6);
+                if (N > 7) {
+                  vertexs = vertexs + vertex_size;
+                  send_dram_read(vertexs, 4, after_load_vertex_offsets_bottom7);
+                } else {
+                  ref_child_event(ptr, 7) = 0;
+                }
+              } else {
+                ref_child_event(ptr, 6) = 0;
+                ref_child_event(ptr, 7) = 0;
+              }
+            } else {
+              ref_child_event(ptr, 5) = 0;
+              ref_child_event(ptr, 6) = 0;
+              ref_child_event(ptr, 7) = 0;
+            }
+          } else {
+            ref_child_event(ptr, 4) = 0;
+            ref_child_event(ptr, 5) = 0;
+            ref_child_event(ptr, 6) = 0;
+            ref_child_event(ptr, 7) = 0;
+          }
+        } else {
+          ref_child_event(ptr, 3) = 0;
+          ref_child_event(ptr, 4) = 0;
+          ref_child_event(ptr, 5) = 0;
+          ref_child_event(ptr, 6) = 0;
+          ref_child_event(ptr, 7) = 0;
+        }
+      } else {
+        ref_child_event(ptr, 2) = 0;
+        ref_child_event(ptr, 3) = 0;
+        ref_child_event(ptr, 4) = 0;
+        ref_child_event(ptr, 5) = 0;
+        ref_child_event(ptr, 6) = 0;
+        ref_child_event(ptr, 7) = 0;
+      }
+
+      counter = N - 1;
+      yield;
+    }
+    edges_to_left_of_start = edges_to_left_of_start_;
+    // unsigned long N_shift = (N_ >> 1);
+    // // load the middle element and spit proportionally
+    // unsigned long middle_vertex = N_shift * vertex_size;
+    // send_dram_read(vertexs + middle_vertex + 16, 1,
+    // after_load_vertex_offsets);
+
+    unsigned long shift = (N_ >> 3);
+    shift = shift * vertex_size;
+    unsigned long *v = vertexs + shift + 16;
+    send_dram_read(v, 1, after_load_vertex_offsets_0);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_1);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_2);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_3);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_4);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_5);
+    v = v + shift;
+    send_dram_read(v, 1, after_load_vertex_offsets_6);
+    counter = 6;
+  }
+
+  event after_load_vertex_offsets_single(
+      unsigned long *edges, unsigned long degree,
+      unsigned long edges_before_vertex, unsigned long vertex_id_loaded) {
+    int lane_start = lane_info & 0xFFFFFFFF;
+    int num_lanes = lane_info >> 32;
+    if (degree == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    // if we are down to a single vertex, just run it
+    unsigned long *local args = args_scratch_space;
+    args[0] = edges;
+    args[1] = degree;
+    args[2] = edges_before_vertex;
+    args[3] = vertex_id_loaded;
+    args[4] = graph;
+    args[5] = num_lanes;
+    args[6] = lane_start;
+    args[7] = depth;
+    // reuse register
+    unsigned long evwWord;
+    if (1) {
+      evwWord = evw_update_event(
+          CEVNT, process_vertex_SPARSE_NON_DETERMINISTIC::phase1);
+    }
+    send_event(evwWord, args, 8, CCONT);
+    yield;
+  }
+
+#define after_load_vertex_offsets_bottom_event(num)                            \
+  event after_load_vertex_offsets_bottom##num(                                 \
+      unsigned long *edges, unsigned long degree,                              \
+      unsigned long edges_before_vertex, unsigned long vertex_id_loaded) {     \
+    unsigned long *local args = args_scratch_space;                            \
+    unsigned long num_lanes = lane_info >> 32;                                 \
+    unsigned long lane_start = lane_info & 0xFFFFFFFF;                         \
+    unsigned long lanes_for_worker = num_lanes * degree;                       \
+    lanes_for_worker = lanes_for_worker / M;                                   \
+    if (degree > 0) {                                                          \
+      args[0] = edges;                                                         \
+      args[1] = degree;                                                        \
+      args[2] = edges_before_vertex;                                           \
+      args[3] = vertex_id_loaded;                                              \
+      args[4] = graph;                                                         \
+      args[5] = lanes_for_worker;                                              \
+      args[6] = lane_start;                                                    \
+      args[7] = depth;                                                         \
+      if (1) {                                                                 \
+        int id = FAKE_COMBINE_LANES(lane_start);                               \
+        unsigned long evwWord =                                                \
+            evw_new(id, process_vertex_SPARSE_NON_DETERMINISTIC::phase1);      \
+        send_event(evwWord, args, 8,                                           \
+                   evw_update_event(CEVNT, phase1_got_child_##num));           \
+      }                                                                        \
+      lane_start = lane_start + lanes_for_worker;                              \
+      num_lanes = num_lanes - lanes_for_worker;                                \
+      lane_info = (num_lanes << 32) | (lane_start);                            \
+    } else {                                                                   \
+      set_child_event(0, num);                                                 \
+      counter = counter - 1;                                                   \
+    }                                                                          \
+  }
+
+  // clang-format off
+  after_load_vertex_offsets_bottom_event(0)
+  after_load_vertex_offsets_bottom_event(1)
+  after_load_vertex_offsets_bottom_event(2)
+  after_load_vertex_offsets_bottom_event(3)
+  after_load_vertex_offsets_bottom_event(4)
+  after_load_vertex_offsets_bottom_event(5)
+  after_load_vertex_offsets_bottom_event(6)
+  after_load_vertex_offsets_bottom_event(7)
+      // clang-format on
+
+      event
+      ignore() {}
+
+#define after_load_vertex_offsets_event_process_not_last_child(num)            \
+  if (1) {                                                                     \
+    long num_edges;                                                            \
+    get_child_event(num_edges, num);                                           \
+    num_edges = num_edges - edges_to_left_of_start;                            \
+    ASSERT_UDW_NON_NEGATIVE(num_edges);                                        \
+    unsigned long lanes_for_child =                                            \
+        (VERTEX_WORK_FACTOR * args[0]) + num_edges;                            \
+    if (1) {                                                                   \
+      lanes_for_child = (num_lanes * lanes_for_child);                         \
+      lanes_for_child = lanes_for_child / counter;                             \
+      if (lanes_for_child == 0) {                                              \
+        lanes_for_child = (VERTEX_WORK_FACTOR * args[0]) + num_edges;          \
+        lanes_for_child = 2 * lanes_for_child;                                 \
+        lanes_for_child = (num_lanes * lanes_for_child);                       \
+        lanes_for_child = lanes_for_child / counter;                           \
+        if (lanes_for_child) {                                                 \
+          lanes_for_child = 1;                                                 \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    if (1) {                                                                   \
+      if (1) {                                                                 \
+        args[1] = num_edges;                                                   \
+        args[2] = vertexs;                                                     \
+        args[4] = edges_to_left_of_start;                                      \
+        unsigned long info = (lanes_for_child << 32);                          \
+        info = info | lane_start;                                              \
+        args[5] = info;                                                        \
+      }                                                                        \
+      int id = FAKE_COMBINE_LANES(lane_start);                                 \
+      if (depth < FORCE_FIRST_NODE) {                                          \
+        id = id % 2048;                                                        \
+      }                                                                        \
+      counter = FAKE_SPREAD_LANES(SWITCH_TO_SPLIT_2);                          \
+      if (lanes_for_child > counter) {                                         \
+        counter = evw_new(id, phase1);                                         \
+      } else {                                                                 \
+        counter =                                                              \
+            evw_new(id, split_vertexs2EM_SPARSE_NON_DETERMINISTIC::phase1);    \
+      }                                                                        \
+      send_event(counter, args, 7,                                             \
+                 evw_update_event(CEVNT, phase1_got_child_##num));             \
+    }                                                                          \
+    edges_to_left_of_start = edges_to_left_of_start + num_edges;               \
+    lane_start = lane_start + lanes_for_child;                                 \
+    vertexs = vertexs + (args[0] * vertex_size);                               \
+    M = M - num_edges;                                                         \
+    N = N - args[0];                                                           \
+    ASSERT_UDW_NON_ZERO(N);                                                    \
+    num_lanes = num_lanes - lanes_for_child;                                   \
+    counter = (VERTEX_WORK_FACTOR * N) + M;                                    \
+  }
+
+#define after_load_vertex_offsets_event(num)                                   \
+  event after_load_vertex_offsets_##num(unsigned long edges_before_vertex) {   \
+    set_child_event(edges_before_vertex, num);                                 \
+    if (counter == 0) {                                                        \
+      /*TODO(wheatman) right now uneven splits give all extra lanes and        \
+       * vertices to the last one, do something better */                      \
+      counter = (VERTEX_WORK_FACTOR * N) + M;                                  \
+      unsigned long num_lanes = lane_info >> 32;                               \
+      int lane_start = lane_info & 0xFFFFFFFF;                                 \
+      unsigned long *local args = args_scratch_space;                          \
+      args[3] = graph;                                                         \
+      args[6] = depth;                                                         \
+      if (1) {                                                                 \
+        args[0] = N >> 3;                                                      \
+      }                                                                        \
+      if (1) {                                                                 \
+        after_load_vertex_offsets_event_process_not_last_child(0);             \
+        after_load_vertex_offsets_event_process_not_last_child(1);             \
+        after_load_vertex_offsets_event_process_not_last_child(2);             \
+        after_load_vertex_offsets_event_process_not_last_child(3);             \
+        after_load_vertex_offsets_event_process_not_last_child(4);             \
+        after_load_vertex_offsets_event_process_not_last_child(5);             \
+        after_load_vertex_offsets_event_process_not_last_child(6);             \
+      }                                                                        \
+      if (1) { /* child 8*/                                                    \
+        if (1) {                                                               \
+          if (1) {                                                             \
+            args[0] = N;                                                       \
+            args[1] = M;                                                       \
+            args[2] = vertexs;                                                 \
+            args[4] = edges_to_left_of_start;                                  \
+            ASSERT_UDW_NON_NEGATIVE(num_lanes);                                \
+            ASSERT_UDW_NON_ZERO(num_lanes);                                    \
+            unsigned long info = (num_lanes << 32);                            \
+            info = info | lane_start;                                          \
+            args[5] = info;                                                    \
+          }                                                                    \
+          int id = FAKE_COMBINE_LANES(lane_start);                             \
+          if (depth < FORCE_FIRST_NODE) {                                      \
+            id = id % 2048;                                                    \
+          }                                                                    \
+          counter = FAKE_SPREAD_LANES(SWITCH_TO_SPLIT_2);                      \
+          if (num_lanes > counter) {                                           \
+            counter = evw_new(id, phase1);                                     \
+          } else {                                                             \
+            counter = evw_new(                                                 \
+                id, split_vertexs2EM_SPARSE_NON_DETERMINISTIC::phase1);        \
+          }                                                                    \
+          send_event(counter, args, 7,                                         \
+                     evw_update_event(CEVNT, phase1_got_child_7));             \
+        }                                                                      \
+      }                                                                        \
+      counter = 7;                                                             \
+      yield;                                                                   \
+    }                                                                          \
+    counter = counter - 1;                                                     \
+  }
+
+  // clang-format off
+  after_load_vertex_offsets_event(0)
+  after_load_vertex_offsets_event(1)
+  after_load_vertex_offsets_event(2)
+  after_load_vertex_offsets_event(3)
+  after_load_vertex_offsets_event(4)
+  after_load_vertex_offsets_event(5)
+  after_load_vertex_offsets_event(6)
+      // clang-format on
+
+      event
+      ignore4() {}
+
+#define phase1_got_child_event(num)                                            \
+  event phase1_got_child_##num(unsigned long child) {                          \
+    set_child_event(child, num);                                               \
+    if (counter == 0) {                                                        \
+      send_event(CCONT, evw_update_event(CEVNT, phase2), IGNRCONT);            \
+      yield;                                                                   \
+    }                                                                          \
+    counter = counter - 1;                                                     \
+  }
+
+  // clang-format off
+  phase1_got_child_event(0)
+  phase1_got_child_event(1)
+  phase1_got_child_event(2)
+  phase1_got_child_event(3)
+  phase1_got_child_event(4)
+  phase1_got_child_event(5)
+  phase1_got_child_event(6)
+  phase1_got_child_event(7)
+
+      // clang-format on
+
+      event
+      ignore2() {}
+
+#define phase2_process_child(num)                                              \
+  if (1) {                                                                     \
+    unsigned long child = ref_child_event(child_data, num);                    \
+    if (child != 0) {                                                          \
+      send_event(child, 0, evw_update_event(CEVNT, phase2_got_child_##num));   \
+    } else {                                                                   \
+      set_child_event_vertex_and_edge_count(0, 0, 0, num);                     \
+      counter = counter - 1;                                                   \
+    }                                                                          \
+  }
+
+  event phase2() {
+    counter = 8;
+    unsigned long *local child_data;
+    local_child_data_ptr(child_data);
+
+    phase2_process_child(0);
+    phase2_process_child(1);
+    phase2_process_child(2);
+    phase2_process_child(3);
+    phase2_process_child(4);
+    phase2_process_child(5);
+    phase2_process_child(6);
+    phase2_process_child(7);
+    if (counter == 0) {
+      send_event(CCONT, 0, 0, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = counter - 1;
+  }
+
+#define phase2_got_child_event(num)                                            \
+  event phase2_got_child_##num(unsigned long vertices_for_frontier,            \
+                               unsigned long edges_for_frontier,               \
+                               unsigned long child) {                          \
+    set_child_event_vertex_and_edge_count(child, vertices_for_frontier,        \
+                                          edges_for_frontier, num);            \
+    if (counter == 0) {                                                        \
+      unsigned long total_vertices = 0;                                        \
+      unsigned long total_edges = 0;                                           \
+      sum_child_vertex_and_edge_count_8(total_vertices, total_edges);          \
+      send_event(CCONT, total_vertices, total_edges,                           \
+                 evw_update_event(CEVNT, phase3), IGNRCONT);                   \
+      yield;                                                                   \
+    }                                                                          \
+    counter = counter - 1;                                                     \
+  }
+
+  // clang-format off
+  phase2_got_child_event(0)
+  phase2_got_child_event(1)
+  phase2_got_child_event(2)
+  phase2_got_child_event(3)
+  phase2_got_child_event(4)
+  phase2_got_child_event(5)
+  phase2_got_child_event(6)
+  phase2_got_child_event(7)
+      // clang-format on
+      event
+      ignore3() {}
+
+  event phase3(unsigned long *next_frontier, unsigned long prefix_edges,
+               unsigned long iteration_number) {
+    unsigned long child;
+    counter = 8;
+    unsigned long cont = evw_update_event(CEVNT, phase3_done);
+
+    if (1) {
+      if (1) {
+        get_child_event(child, 0);
+      }
+      if (child != 0) {
+
+        send_event(child, next_frontier, prefix_edges, iteration_number, cont);
+      } else {
+        counter = counter - 1;
+      }
+    }
+
+    unsigned long reservations_from_left = 0;
+    unsigned long left_child_edges = prefix_edges;
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 1);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 2);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 3);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 4);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 5);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 6);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    get_child_event_sum_prev_vertex_count_and_edge_count(
+        child, reservations_from_left, left_child_edges, 7);
+    if (child != 0) {
+      if (1) {
+        send_event(child,
+                   next_frontier + (reservations_from_left * (vertex_size)),
+                   left_child_edges, iteration_number, cont);
+      }
+    } else {
+      counter = counter - 1;
+    }
+
+    if (counter == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = counter - 1;
+  }
+
+  event phase3_done() {
+    // print("CCONT, %ld, depth, %d", CCONT, depth);
+    if (counter == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = counter - 1;
+  }
+}
+
+thread split_vertexs2EM_SPARSE_NON_DETERMINISTIC {
+
+  unsigned long N_or_left_child;
+  long M_or_right_child;
+  unsigned long counter;
+
+  unsigned long lane_info_or_num_reservations;
+
+  unsigned long *vertexs;
+  unsigned long *graph;
+  unsigned long edges_to_left_of_start_or_for_frontier;
+  unsigned long depth;
+
+  // M is the number of edges in my region
+
+  event phase1(unsigned long N_, long M_, unsigned long *vertexs_,
+               unsigned long *graph_, unsigned long edges_to_left_of_start_,
+               unsigned long lane_info_, unsigned long depth_) {
+    // print("N = %d, M = %d, lane_info = %lx, depth = %d, CCONT = %lx", N_, M_,
+    //       lane_info_, depth_, CCONT);
+
+    ASSERT_UDW_NON_NEGATIVE(M_);
+
+    if (N_ == 0 || M_ == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    int num_lanes = lane_info_ >> 32;
+
+    // TODO(wheatman) see if this number can be larger
+    // int run_bottom = N_ <= 6;
+    // run_bottom = run_bottom && (num_lanes <= 8);
+    // run_bottom = run_bottom || num_lanes <= 1;
+    if (num_lanes <= 1) {
+      unsigned long evwWord = evw_update_event(
+          CEVNT, process_vertexs_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+      send_ops(evwWord, N_, 4, CCONT);
+      yield;
+    }
+    // print("depth = %d", depth_);
+    depth = depth_ + 1;
+    lane_info_or_num_reservations = lane_info_;
+    graph = graph_;
+
+    if (N_ == 1) {
+      send_dram_read(vertexs_, 4, after_load_vertex_offsets_single);
+      yield;
+    }
+    M_or_right_child = M_;
+
+    N_or_left_child = N_;
+
+    vertexs = vertexs_;
+
+    edges_to_left_of_start_or_for_frontier = edges_to_left_of_start_;
+    // unsigned long N_shift = (N_ >> 1);
+    // // load the middle element and spit proportionally
+    // unsigned long middle_vertex = N_shift * vertex_size;
+    // send_dram_read(vertexs + middle_vertex + 16, 1,
+    // after_load_vertex_offsets);
+
+    unsigned long shift = (N_ >> 1);
+    shift = shift * vertex_size;
+    unsigned long *v = vertexs + shift;
+    send_dram_read(v, 4, after_load_vertex_offsets);
+    counter = 1;
+  }
+
+  event after_load_vertex_offsets_single(
+      unsigned long *edges, unsigned long degree,
+      unsigned long edges_before_vertex, unsigned long vertex_id_loaded) {
+    int lane_start = lane_info_or_num_reservations & 0xFFFFFFFF;
+    int num_lanes = lane_info_or_num_reservations >> 32;
+    if (degree == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    // if we are down to a single vertex, just run it
+    unsigned long *local args = args_scratch_space;
+    args[0] = edges;
+    args[1] = degree;
+    args[2] = edges_before_vertex;
+    args[3] = vertex_id_loaded;
+    args[4] = graph;
+    args[5] = num_lanes;
+    args[6] = lane_start;
+    args[7] = depth;
+    // reuse register
+    unsigned long evwWord;
+    if (1) {
+      evwWord = evw_update_event(
+          CEVNT, process_vertex_SPARSE_NON_DETERMINISTIC::phase1);
+    }
+    send_event(evwWord, args, 8, CCONT);
+    yield;
+  }
+
+  event after_load_vertex_offsets(unsigned long *edges_, unsigned long degree_,
+                                  unsigned long edges_before_vertex,
+                                  unsigned long vertex_id_) {
+
+    // split the work and recurse
+
+    // reuse left_child register
+    unsigned long edges_for_left_half = 0;
+
+    unsigned long lanes_for_left_half = 0;
+    unsigned long N_shift = (N_or_left_child >> 1);
+    if (1) {
+      int num_lanes = lane_info_or_num_reservations >> 32;
+      edges_for_left_half =
+          edges_before_vertex - edges_to_left_of_start_or_for_frontier;
+      lanes_for_left_half = edges_for_left_half;
+      lanes_for_left_half =
+          lanes_for_left_half + (VERTEX_WORK_FACTOR * N_shift);
+      lanes_for_left_half = lanes_for_left_half * num_lanes;
+      unsigned long spare = (VERTEX_WORK_FACTOR * N_or_left_child);
+      spare = spare + M_or_right_child;
+      lanes_for_left_half = lanes_for_left_half / spare;
+    }
+
+    if (lanes_for_left_half == 0) {
+      int num_lanes = lane_info_or_num_reservations >> 32;
+      // reusing the lanes_for_left_half register
+      lanes_for_left_half = VERTEX_WORK_FACTOR * N_shift;
+      lanes_for_left_half = lanes_for_left_half + edges_for_left_half;
+      // if we are more than half way to needing 1 lane, give it the lane
+      lanes_for_left_half = lanes_for_left_half * num_lanes;
+      lanes_for_left_half = lanes_for_left_half * 2;
+      unsigned long spare = (VERTEX_WORK_FACTOR * N_or_left_child);
+      spare = spare + M_or_right_child;
+      lanes_for_left_half = lanes_for_left_half / spare;
+      if (lanes_for_left_half) {
+        lanes_for_left_half = 1;
+      }
+    }
+    unsigned long *local args = args_scratch_space;
+    args[2] = vertexs;
+    args[3] = graph;
+    args[6] = depth;
+    int lane_start = lane_info_or_num_reservations & 0xFFFFFFFF;
+    if (1) {
+      if (1) {
+        args[0] = N_shift;
+        args[1] = edges_for_left_half;
+        ASSERT_UDW_NON_NEGATIVE(edges_for_left_half);
+
+        args[4] = edges_to_left_of_start_or_for_frontier;
+
+        // reuse register
+        edges_to_left_of_start_or_for_frontier = (lanes_for_left_half << 32);
+        edges_to_left_of_start_or_for_frontier =
+            edges_to_left_of_start_or_for_frontier | lane_start;
+        args[5] = edges_to_left_of_start_or_for_frontier;
+      }
+      if (lanes_for_left_half > 1) {
+        // reuse registers
+        unsigned long envword = evw_new(NETID, phase1);
+        send_event(envword, args, 7,
+                   evw_update_event(CEVNT, phase1_got_child_0));
+      } else { /* lanes_for_left_half == 1*/
+        unsigned long envword = evw_new(
+            NETID,
+            process_vertexs_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+        send_event(envword, args, 4,
+                   evw_update_event(CEVNT, phase1_got_child_0));
+      }
+    }
+    if (1) {
+      // reuse registers
+      if (1) {
+        args[0] = N_or_left_child - N_shift;
+        args[1] = M_or_right_child - edges_for_left_half;
+        ASSERT_UDW_NON_NEGATIVE(M_or_right_child - edges_for_left_half);
+      }
+      vertexs = vertexs + (N_shift * vertex_size);
+      args[2] = vertexs;
+      args[4] = edges_before_vertex;
+      lane_start = lane_start + lanes_for_left_half;
+      if (1) {
+        unsigned long num_lanes = lane_info_or_num_reservations >> 32;
+        // reuse register
+        edges_to_left_of_start_or_for_frontier =
+            num_lanes - lanes_for_left_half;
+        edges_to_left_of_start_or_for_frontier =
+            edges_to_left_of_start_or_for_frontier << 32;
+        num_lanes = lane_start;
+        edges_to_left_of_start_or_for_frontier =
+            edges_to_left_of_start_or_for_frontier | num_lanes;
+        args[5] = edges_to_left_of_start_or_for_frontier;
+      }
+      lane_start = FAKE_COMBINE_LANES(lane_start);
+      if (depth < FORCE_FIRST_NODE) {
+        lane_start = lane_start % 2048;
+      }
+
+      if ((edges_to_left_of_start_or_for_frontier >> 32) > 1) {
+        // reuse registers
+        unsigned long envword = evw_new(lane_start, phase1);
+        send_event(envword, args, 7,
+                   evw_update_event(CEVNT, phase1_got_child_1));
+      } else { /* lanes_for_left_half == 1*/
+        if (args[0] > 1) {
+          unsigned long envword = evw_new(
+              lane_start,
+              process_vertexs_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+          send_event(envword, args, 4,
+                     evw_update_event(CEVNT, phase1_got_child_1));
+        } else {
+          args[0] = edges_;
+          args[1] = degree_;
+          args[2] = edges_before_vertex;
+          args[3] = vertex_id_;
+          args[4] = graph;
+          unsigned long envword = evw_new(
+              lane_start,
+              process_vertex_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+          send_event(envword, args, 5,
+                     evw_update_event(CEVNT, phase1_got_child_1));
+        }
+      }
+    }
+    counter = 1;
+  }
+
+  event phase1_got_child_0(unsigned long child, unsigned long active) {
+    if (active > 0) {
+      N_or_left_child = child;
+    } else {
+      N_or_left_child = 0;
+    }
+
+    if (counter == 0) {
+      if (N_or_left_child != 0 && M_or_right_child != 0) {
+        send_event(CCONT, evw_update_event(CEVNT, phase2), 1, IGNRCONT);
+        yield;
+      }
+      if (N_or_left_child != 0) {
+        send_event(CCONT, N_or_left_child, 1, IGNRCONT);
+        yield_terminate;
+      }
+      if (M_or_right_child != 0) {
+        send_event(CCONT, M_or_right_child, 1, IGNRCONT);
+        yield_terminate;
+      }
+      send_event(CCONT, 0, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = 0;
+  }
+
+  event phase1_got_child_1(unsigned long child, unsigned long active) {
+    if (active > 0) {
+      M_or_right_child = child;
+    } else {
+      M_or_right_child = 0;
+    }
+
+    if (counter == 0) {
+      if (N_or_left_child != 0 && M_or_right_child != 0) {
+        send_event(CCONT, evw_update_event(CEVNT, phase2), 1, IGNRCONT);
+        yield;
+      }
+      if (N_or_left_child != 0) {
+        send_event(CCONT, N_or_left_child, 1, IGNRCONT);
+        yield_terminate;
+      }
+      if (M_or_right_child != 0) {
+        send_event(CCONT, M_or_right_child, 1, IGNRCONT);
+        yield_terminate;
+      }
+      send_event(CCONT, 0, 0, IGNRCONT);
+      yield_terminate;
+    }
+
+    counter = 0;
+  }
+
+  event phase2() {
+    ASSERT_UDW_NON_ZERO(N_or_left_child);
+    ASSERT_UDW_NON_ZERO(M_or_right_child);
+    send_event(N_or_left_child, 0, evw_update_event(CEVNT, phase2_got_child_0));
+    send_event(M_or_right_child, 0,
+               evw_update_event(CEVNT, phase2_got_child_1));
+    counter = 1;
+    edges_to_left_of_start_or_for_frontier = 0;
+    lane_info_or_num_reservations = 0;
+    yield;
+  }
+
+  event phase2_got_child_0(unsigned long vertices_for_frontier,
+                           unsigned long edges_for_frontier,
+                           unsigned long child) {
+    if (vertices_for_frontier != 0) {
+      N_or_left_child = child;
+    } else {
+      N_or_left_child = 0;
+    }
+
+    if (counter == 1) {
+      edges_to_left_of_start_or_for_frontier = edges_for_frontier;
+      lane_info_or_num_reservations = vertices_for_frontier;
+      counter = 0;
+    } else {
+      unsigned long total_vertices =
+          lane_info_or_num_reservations + vertices_for_frontier;
+      if (total_vertices != 0) {
+        unsigned long total_edges =
+            edges_to_left_of_start_or_for_frontier + edges_for_frontier;
+        edges_to_left_of_start_or_for_frontier = edges_for_frontier;
+        lane_info_or_num_reservations = vertices_for_frontier;
+        send_event(CCONT, total_vertices, total_edges,
+                   evw_update_event(CEVNT, phase3), IGNRCONT);
+        yield;
+      } else {
+        send_event(CCONT, total_vertices, total_vertices, total_vertices,
+                   IGNRCONT);
+        yield_terminate;
+      }
+    }
+  }
+
+  event phase2_got_child_1(unsigned long vertices_for_frontier,
+                           unsigned long edges_for_frontier,
+                           unsigned long child) {
+    if (vertices_for_frontier != 0) {
+      M_or_right_child = child;
+    } else {
+      M_or_right_child = 0;
+    }
+    if (counter == 1) {
+      edges_to_left_of_start_or_for_frontier = edges_for_frontier;
+      lane_info_or_num_reservations = vertices_for_frontier;
+      counter = 0;
+    } else {
+      unsigned long total_vertices =
+          lane_info_or_num_reservations + vertices_for_frontier;
+      if (total_vertices != 0) {
+        unsigned long total_edges =
+            edges_to_left_of_start_or_for_frontier + edges_for_frontier;
+        send_event(CCONT, total_vertices, total_edges,
+                   evw_update_event(CEVNT, phase3), IGNRCONT);
+        yield;
+      } else {
+        send_event(CCONT, total_vertices, total_vertices, total_vertices,
+                   IGNRCONT);
+        yield_terminate;
+      }
+    }
+  }
+
+  event phase3(unsigned long *next_frontier, unsigned long prefix_edges,
+               unsigned long iteration_number) {
+
+    if (N_or_left_child != 0 && M_or_right_child != 0) {
+      unsigned long cont = evw_update_event(CEVNT, phase3_done);
+      send_event(N_or_left_child, next_frontier, prefix_edges, iteration_number,
+                 cont);
+      unsigned long reservations_from_left = lane_info_or_num_reservations;
+      unsigned long left_child_edges =
+          prefix_edges + edges_to_left_of_start_or_for_frontier;
+      send_event(M_or_right_child,
+                 next_frontier + (reservations_from_left * (vertex_size)),
+                 left_child_edges, iteration_number, cont);
+      counter = 1;
+      yield;
+    }
+    if (N_or_left_child != 0) {
+      send_event(N_or_left_child, next_frontier, prefix_edges, iteration_number,
+                 CCONT);
+      yield_terminate;
+    }
+
+    if (M_or_right_child != 0) {
+      ASSERT_UDW_ZERO(lane_info_or_num_reservations);
+      ASSERT_UDW_ZERO(edges_to_left_of_start_or_for_frontier);
+      send_event(M_or_right_child, next_frontier, prefix_edges,
+                 iteration_number, CCONT);
+      yield_terminate;
+    }
+  }
+
+  event phase3_done() {
+    // print("CCONT, %ld, depth, %d", CCONT, depth);
+    if (counter == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = 0;
+  }
+}
+
+#define ref_child_edges(ptr, num) ptr[0 + (num * 4)]
+#define ref_child_edgesend(ptr, num) ptr[1 + (num * 4)]
+#define ref_child_vertex_id(ptr, num) ptr[2 + (num * 4)]
+#define ref_child_numleft(ptr, num) ptr[3 + (num * 4)]
+
+thread process_vertexs_on_one_lane_SPARSE_NON_DETERMINISTIC {
+
+  unsigned long *vertexs;
+  unsigned long *original_vertexs;
+  unsigned long *end_vertexs;
+  unsigned long *finished_vertexs;
+
+  unsigned long num_reservations;
+  unsigned long prefix_edges;
+
+  unsigned long *next_frontier;
+
+  unsigned long iteration_number;
+
+  unsigned long *graph;
+
+  unsigned long still_have_starting_edges;
+
+  event phase1(unsigned long N_, unsigned long M_unused,
+               unsigned long *vertexs_, unsigned long *graph_) {
+    // print("num_vertices = %d, num_edges = %d", N_, M_unused);
+    graph = graph_;
+
+    if (N_ == 1) {
+      unsigned long continuationWord =
+          evw_update_event(CEVNT, one_offset_loaded_phase1);
+      send_dram_read(vertexs_, 4, continuationWord);
+      yield;
+    }
+    vertexs = vertexs_;
+    original_vertexs = vertexs;
+    finished_vertexs = vertexs;
+    end_vertexs = vertexs + (N_ * vertex_size);
+    still_have_starting_edges = 1;
+
+    num_reservations = 0;
+
+    unsigned long continuationWord =
+        evw_update_event(CEVNT, offsets_loaded_phase1_0);
+    send_dram_read(vertexs, 4, continuationWord);
+
+    vertexs = vertexs + (vertex_size);
+    if (vertexs < end_vertexs) {
+      continuationWord = evw_update_event(CEVNT, offsets_loaded_phase1_1);
+      send_dram_read(vertexs, 4, continuationWord);
+      vertexs = vertexs + (vertex_size);
+      if (vertexs < end_vertexs) {
+        continuationWord = evw_update_event(CEVNT, offsets_loaded_phase1_2);
+        send_dram_read(vertexs, 4, continuationWord);
+        vertexs = vertexs + (vertex_size);
+        if (vertexs < end_vertexs) {
+          continuationWord = evw_update_event(CEVNT, offsets_loaded_phase1_3);
+          send_dram_read(vertexs, 4, continuationWord);
+          vertexs = vertexs + (vertex_size);
+          if (vertexs < end_vertexs) {
+            continuationWord = evw_update_event(CEVNT, offsets_loaded_phase1_4);
+            send_dram_read(vertexs, 4, continuationWord);
+            vertexs = vertexs + (vertex_size);
+            if (vertexs < end_vertexs) {
+              continuationWord =
+                  evw_update_event(CEVNT, offsets_loaded_phase1_5);
+              send_dram_read(vertexs, 4, continuationWord);
+              vertexs = vertexs + (vertex_size);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  event one_offset_loaded_phase1(unsigned long *edges0, unsigned long degree0,
+                                 unsigned long edges_before0,
+                                 unsigned long vertex_id0) {
+    unsigned long *local args = args_scratch_space;
+    args[0] = edges0;
+    args[1] = degree0;
+    args[2] = edges_before0;
+    args[3] = vertex_id0;
+    args[4] = graph;
+    unsigned long envword = evw_update_event(
+        CEVNT, process_vertex_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+    send_event(envword, args, 5, CCONT);
+  }
+
+#define offsets_loaded_phase1_event(num)                                       \
+  event offsets_loaded_phase1_##num(                                           \
+      unsigned long *edges0, unsigned long degree0,                            \
+      unsigned long edges_before0, unsigned long vertex_id0) {                 \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    if (degree0 == 0) {                                                        \
+      ref_child_numleft(child_data, num) = 1;                                  \
+      send_event(evw_update_event(CEVNT, done_phase1_##num), 0, IGNRCONT);     \
+      ref_child_edges(child_data, num) = 0;                                    \
+      yield;                                                                   \
+    }                                                                          \
+    unsigned long *edges = edges0;                                             \
+    if (1) {                                                                   \
+      int iters = degree0 / 8;                                                 \
+      if (iters * 8 < degree0) {                                               \
+        iters = iters + 1;                                                     \
+      }                                                                        \
+      if (iters > max_outstanding_read_requests_nondet) {                      \
+        iters = max_outstanding_read_requests_nondet;                          \
+        still_have_starting_edges = 0;                                         \
+        while (iters > 0) {                                                    \
+          send_dram_read(edges, 8,                                             \
+                         evw_update_event(CEVNT, got_sources_phase1_##num));   \
+          /* +64 is 8 words each 8 bytes in size*/                             \
+          edges = edges + 64;                                                  \
+          iters = iters - 1;                                                   \
+        }                                                                      \
+        ref_child_edges(child_data, num) = edges;                              \
+      } else {                                                                 \
+        while (iters > 0) {                                                    \
+          send_dram_read(edges, 8,                                             \
+                         evw_update_event(                                     \
+                             CEVNT, got_sources_phase1_done_edge_load_##num)); \
+          /* +64 is 8 words each 8 bytes in size*/                             \
+          edges = edges + 64;                                                  \
+          iters = iters - 1;                                                   \
+        }                                                                      \
+        ref_child_edges(child_data, num) = edges0;                             \
+      }                                                                        \
+    }                                                                          \
+    ref_child_edgesend(child_data, num) = edges0 + (degree0 * sizeof(long));   \
+    ref_child_vertex_id(child_data, num) = vertex_id0;                         \
+    ref_child_numleft(child_data, num) = degree0;                              \
+  }
+  // clang-format off
+  offsets_loaded_phase1_event(0)
+  offsets_loaded_phase1_event(1)
+  offsets_loaded_phase1_event(2)
+  offsets_loaded_phase1_event(3)
+  offsets_loaded_phase1_event(4)
+  offsets_loaded_phase1_event(5)
+  // clang-format on
+
+#define got_sources_phase1_event(num)                                          \
+  event got_sources_phase1_##num(                                              \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont =                                                \
+          evw_update_event(CEVNT, got_curr_phase1_##num);                      \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      unsigned long *edges = ref_child_edges(child_data, num);                 \
+      if (edges < ref_child_edgesend(child_data, num)) {                       \
+        send_dram_read(edges, 8,                                               \
+                       evw_update_event(CEVNT, got_sources_phase1_##num));     \
+        /* +64 is 8 words each 8 bytes in size*/                               \
+        edges = edges + 64;                                                    \
+        ref_child_edges(child_data, num) = edges;                              \
+      }                                                                        \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+#define got_sources_phase1_done_edge_load_event(num)                           \
+  event got_sources_phase1_done_edge_load_##num(                               \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont =                                                \
+          evw_update_event(CEVNT, got_curr_phase1_##num);                      \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_curr_phase1_##num);                  \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+      // clang-format off
+  got_sources_phase1_event(0)
+  got_sources_phase1_event(1)
+  got_sources_phase1_event(2) 
+  got_sources_phase1_event(3)
+  got_sources_phase1_event(4) 
+  got_sources_phase1_event(5)
+
+  got_sources_phase1_done_edge_load_event(0) 
+  got_sources_phase1_done_edge_load_event(1)
+  got_sources_phase1_done_edge_load_event(2) 
+  got_sources_phase1_done_edge_load_event(3)
+  got_sources_phase1_done_edge_load_event(4) 
+  got_sources_phase1_done_edge_load_event(5)
+      // clang-format on
+      event
+      ignore2() {
+  }
+
+  // TODO(wheatman) we don't actually need all this data but its simpler for
+  // now
+#define got_curr_phase1_event(num)                                             \
+  event got_curr_phase1_##num(                                                 \
+      unsigned long *dests_unused, unsigned long degree_unused,                \
+      unsigned long edges_before_unused, unsigned long other_vertex_id,        \
+      unsigned long curr_value, unsigned long reservation,                     \
+      unsigned long *loc) {                                                    \
+    unsigned long *local child_data;                                           \
+    if (1) {                                                                   \
+      local_child_data_ptr(child_data);                                        \
+    }                                                                          \
+    /* algorithm specific */                                                   \
+    unsigned long cont = evw_update_event(CEVNT, done_phase1_##num);           \
+    if (curr_value == UNSIGNED_LONG_MAX && reservation == UNSIGNED_LONG_MAX) { \
+      num_reservations = num_reservations + 1;                                 \
+      /* the scratch space for the reservation is the 6th field */             \
+      send_dram_write(loc + 40, ref_child_vertex_id(child_data, num), cont);   \
+    } else {                                                                   \
+      unsigned long num_left = ref_child_numleft(child_data, num) - 1;         \
+      ref_child_numleft(child_data, num) = num_left;                           \
+      if (num_left == 0) {                                                     \
+        finished_vertexs = finished_vertexs + vertex_size;                     \
+        if (finished_vertexs == end_vertexs) {                                 \
+          if (num_reservations != 0) {                                         \
+            send_event(CCONT, evw_update_event(CEVNT, phase2),                 \
+                       num_reservations, IGNRCONT);                            \
+            yield;                                                             \
+          } else {                                                             \
+            send_event(CCONT, num_reservations, num_reservations, IGNRCONT);   \
+            yield_terminate;                                                   \
+          }                                                                    \
+        }                                                                      \
+        if (vertexs < end_vertexs) {                                           \
+          unsigned long continuationWord =                                     \
+              evw_update_event(CEVNT, offsets_loaded_phase1_##num);            \
+          send_dram_read(vertexs, 4, continuationWord);                        \
+          vertexs = vertexs + (vertex_size);                                   \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+  // clang-format off
+  got_curr_phase1_event(0) 
+  got_curr_phase1_event(1) 
+  got_curr_phase1_event(2)
+  got_curr_phase1_event(3) 
+  got_curr_phase1_event(4) 
+  got_curr_phase1_event(5)
+      // clang-format on
+      event
+      ignore3() {}
+
+#define done_phase1_event(num)                                                 \
+  event done_phase1_##num() {                                                  \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long num_left = ref_child_numleft(child_data, num) - 1;           \
+    ref_child_numleft(child_data, num) = num_left;                             \
+    if (num_left == 0) {                                                       \
+      finished_vertexs = finished_vertexs + vertex_size;                       \
+      if (finished_vertexs == end_vertexs) {                                   \
+        if (num_reservations != 0) {                                           \
+          send_event(CCONT, evw_update_event(CEVNT, phase2), num_reservations, \
+                     IGNRCONT);                                                \
+          yield;                                                               \
+        } else {                                                               \
+          send_event(CCONT, num_reservations, num_reservations, IGNRCONT);     \
+          yield_terminate;                                                     \
+        }                                                                      \
+      }                                                                        \
+      if (vertexs < end_vertexs) {                                             \
+        unsigned long continuationWord =                                       \
+            evw_update_event(CEVNT, offsets_loaded_phase1_##num);              \
+        send_dram_read(vertexs, 4, continuationWord);                          \
+        vertexs = vertexs + (vertex_size);                                     \
+      }                                                                        \
+    }                                                                          \
+  }
+  // clang-format off
+  done_phase1_event(0) 
+  done_phase1_event(1) 
+  done_phase1_event(2)
+  done_phase1_event(3) 
+  done_phase1_event(4) 
+  done_phase1_event(5)
+      // clang-format on
+
+      event
+      ignore4() {}
+
+#define phase2_process_cached_child(num)                                       \
+  if (1) {                                                                     \
+    if (ref_child_edges(child_data, num) == 0) {                               \
+      ref_child_numleft(child_data, num) = 1;                                  \
+      unsigned long max_val = UNSIGNED_LONG_MAX;                               \
+      send_event(evw_update_event(CEVNT, done_phase2_##num), 0, max_val,       \
+                 IGNRCONT);                                                    \
+    } else {                                                                   \
+      unsigned long *edges = ref_child_edges(child_data, num);                 \
+      unsigned long *edges_end = ref_child_edgesend(child_data, num);          \
+      /* reuse register */                                                     \
+      prefix_edges = (edges_end - edges);                                      \
+      ref_child_numleft(child_data, num) = prefix_edges / sizeof(long);        \
+      if (1) {                                                                 \
+        while (edges < edges_end) {                                            \
+          send_dram_read(edges, 8,                                             \
+                         evw_update_event(                                     \
+                             CEVNT, got_sources_phase2_done_edge_load_##num)); \
+          edges = edges + 64;                                                  \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  event phase2() {
+    ASSERT_UDW_NON_ZERO(num_reservations);
+    vertexs = original_vertexs;
+    finished_vertexs = vertexs;
+    num_reservations = 0;
+    prefix_edges = 0;
+
+    // if we don't have that many vertices we still have their info stored
+    // so don't query it again
+    if (still_have_starting_edges &&
+        vertexs + (6 * vertex_size) >= end_vertexs) {
+      unsigned long *local child_data;
+      local_child_data_ptr(child_data);
+      phase2_process_cached_child(0);
+      vertexs = vertexs + (vertex_size);
+      if (vertexs < end_vertexs) {
+        phase2_process_cached_child(1);
+        vertexs = vertexs + (vertex_size);
+        if (vertexs < end_vertexs) {
+          phase2_process_cached_child(2);
+          vertexs = vertexs + (vertex_size);
+          if (vertexs < end_vertexs) {
+            phase2_process_cached_child(3);
+            vertexs = vertexs + (vertex_size);
+            if (vertexs < end_vertexs) {
+              phase2_process_cached_child(4);
+              vertexs = vertexs + (vertex_size);
+              if (vertexs < end_vertexs) {
+                phase2_process_cached_child(5);
+                vertexs = vertexs + (vertex_size);
+              }
+            }
+          }
+        }
+      }
+      num_reservations = 0;
+      prefix_edges = 0;
+      yield;
+    }
+    num_reservations = 0;
+    prefix_edges = 0;
+
+    unsigned long continuationWord =
+        evw_update_event(CEVNT, offsets_loaded_phase2_0);
+    send_dram_read(vertexs, 4, continuationWord);
+    vertexs = vertexs + (vertex_size);
+
+    if (vertexs < end_vertexs) {
+      continuationWord = evw_update_event(CEVNT, offsets_loaded_phase2_1);
+      send_dram_read(vertexs, 4, continuationWord);
+      vertexs = vertexs + (vertex_size);
+      if (vertexs < end_vertexs) {
+        continuationWord = evw_update_event(CEVNT, offsets_loaded_phase2_2);
+        send_dram_read(vertexs, 4, continuationWord);
+        vertexs = vertexs + (vertex_size);
+        if (vertexs < end_vertexs) {
+          continuationWord = evw_update_event(CEVNT, offsets_loaded_phase2_3);
+          send_dram_read(vertexs, 4, continuationWord);
+          vertexs = vertexs + (vertex_size);
+          if (vertexs < end_vertexs) {
+            continuationWord = evw_update_event(CEVNT, offsets_loaded_phase2_4);
+            send_dram_read(vertexs, 4, continuationWord);
+            vertexs = vertexs + (vertex_size);
+            if (vertexs < end_vertexs) {
+              continuationWord =
+                  evw_update_event(CEVNT, offsets_loaded_phase2_5);
+              send_dram_read(vertexs, 4, continuationWord);
+              vertexs = vertexs + (vertex_size);
+            }
+          }
+        }
+      }
+    }
+  }
+
+#define offsets_loaded_phase2_event(num)                                       \
+  event offsets_loaded_phase2_##num(                                           \
+      unsigned long *edges0, unsigned long degree0,                            \
+      unsigned long edges_before0, unsigned long vertex_id0) {                 \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    if (degree0 == 0) {                                                        \
+      ref_child_numleft(child_data, num) = 1;                                  \
+      unsigned long max_val = UNSIGNED_LONG_MAX;                               \
+      send_event(evw_update_event(CEVNT, done_phase2_##num), 0, max_val,       \
+                 IGNRCONT);                                                    \
+      yield;                                                                   \
+    }                                                                          \
+    unsigned long *edges = edges0;                                             \
+    if (1) {                                                                   \
+      int iters = degree0 / 8;                                                 \
+      if (iters * 8 < degree0) {                                               \
+        iters = iters + 1;                                                     \
+      }                                                                        \
+      if (iters > max_outstanding_read_requests_nondet) {                      \
+        iters = max_outstanding_read_requests_nondet;                          \
+      }                                                                        \
+      while (iters > 0) {                                                      \
+        send_dram_read(edges, 8,                                               \
+                       evw_update_event(CEVNT, got_sources_phase2_##num));     \
+        /* +64 is 8 words each 8 bytes in size*/                               \
+        edges = edges + 64;                                                    \
+        iters = iters - 1;                                                     \
+      }                                                                        \
+    }                                                                          \
+    ref_child_edges(child_data, num) = edges;                                  \
+    ref_child_edgesend(child_data, num) = edges0 + (degree0 * sizeof(long));   \
+    ref_child_vertex_id(child_data, num) = vertex_id0;                         \
+    ref_child_numleft(child_data, num) = degree0;                              \
+  }
+  // clang-format off
+  offsets_loaded_phase2_event(0)
+  offsets_loaded_phase2_event(1)
+  offsets_loaded_phase2_event(2)
+  offsets_loaded_phase2_event(3)
+  offsets_loaded_phase2_event(4)
+  offsets_loaded_phase2_event(5)
+      // clang-format on
+
+      event
+      ignore5() {}
+
+#define got_sources_phase2_event(num)                                          \
+  event got_sources_phase2_##num(                                              \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont = evw_update_event(CEVNT, done_phase2_##num);    \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      unsigned long *edges = ref_child_edges(child_data, num);                 \
+      if (edges < ref_child_edgesend(child_data, num)) {                       \
+        send_dram_read(edges, 8,                                               \
+                       evw_update_event(CEVNT, got_sources_phase2_##num));     \
+        /* +64 is 8 words each 8 bytes in size*/                               \
+        edges = edges + 64;                                                    \
+        ref_child_edges(child_data, num) = edges;                              \
+      }                                                                        \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+#define got_sources_phase2_done_edge_load_event(num)                           \
+  event got_sources_phase2_done_edge_load_##num(                               \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont = evw_update_event(CEVNT, done_phase2_##num);    \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, done_phase2_##num);                      \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  // clang-format off
+  got_sources_phase2_event(0) 
+  got_sources_phase2_event(1)
+  got_sources_phase2_event(2) 
+  got_sources_phase2_event(3)
+  got_sources_phase2_event(4) 
+  got_sources_phase2_event(5)
+
+  got_sources_phase2_done_edge_load_event(0) 
+  got_sources_phase2_done_edge_load_event(1)
+  got_sources_phase2_done_edge_load_event(2) 
+  got_sources_phase2_done_edge_load_event(3)
+  got_sources_phase2_done_edge_load_event(4) 
+  got_sources_phase2_done_edge_load_event(5)
+      // clang-format on
+      event
+      ignore6() {}
+
+#define done_phase2_event(num)                                                 \
+  event done_phase2_##num(                                                     \
+      unsigned long *dests_unused, unsigned long degree,                       \
+      unsigned long edges_before_unused, unsigned long other_vertex_id_unused, \
+      unsigned long curr_value_unused, unsigned long winner) {                 \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long num_left = ref_child_numleft(child_data, num) - 1;           \
+    ref_child_numleft(child_data, num) = num_left;                             \
+    if (winner == ref_child_vertex_id(child_data, num)) {                      \
+      num_reservations = num_reservations + 1;                                 \
+      prefix_edges = prefix_edges + degree;                                    \
+    }                                                                          \
+    if (num_left == 0) {                                                       \
+      finished_vertexs = finished_vertexs + vertex_size;                       \
+      if (finished_vertexs == end_vertexs) {                                   \
+        if (num_reservations != 0) {                                           \
+          send_event(CCONT, num_reservations, prefix_edges,                    \
+                     evw_update_event(CEVNT, phase3), IGNRCONT);               \
+          yield;                                                               \
+        } else {                                                               \
+          send_event(CCONT, num_reservations, num_reservations,                \
+                     num_reservations, IGNRCONT);                              \
+          yield_terminate;                                                     \
+        }                                                                      \
+      }                                                                        \
+      if (vertexs < end_vertexs) {                                             \
+        unsigned long continuationWord =                                       \
+            evw_update_event(CEVNT, offsets_loaded_phase2_##num);              \
+        send_dram_read(vertexs, 4, continuationWord);                          \
+        vertexs = vertexs + (vertex_size);                                     \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  // clang-format off
+  done_phase2_event(0) 
+  done_phase2_event(1)
+  done_phase2_event(2) 
+  done_phase2_event(3)
+  done_phase2_event(4) 
+  done_phase2_event(5)
+      // clang-format on
+
+      event
+      ignore7() {}
+
+#define phase3_process_cached_child(num)                                       \
+  if (1) {                                                                     \
+    if (ref_child_edges(child_data, num) == 0) {                               \
+      ref_child_numleft(child_data, num) = 1;                                  \
+      unsigned long max_val = UNSIGNED_LONG_MAX;                               \
+      send_event(evw_update_event(CEVNT, done_phase3_##num), 0, max_val,       \
+                 IGNRCONT);                                                    \
+    } else {                                                                   \
+      unsigned long *edges = ref_child_edges(child_data, num);                 \
+      unsigned long *edges_end = ref_child_edgesend(child_data, num);          \
+      /* reuse register */                                                     \
+      prefix_edges = (edges_end - edges);                                      \
+      ref_child_numleft(child_data, num) = prefix_edges / sizeof(long);        \
+      if (1) {                                                                 \
+        while (edges < edges_end) {                                            \
+          send_dram_read(edges, 8,                                             \
+                         evw_update_event(                                     \
+                             CEVNT, got_sources_phase3_done_edge_load_##num)); \
+          edges = edges + 64;                                                  \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  event phase3(unsigned long *next_frontier_, unsigned long prefix_edges_,
+               unsigned long iteration_number_) {
+    ASSERT_UDW_NON_ZERO(num_reservations);
+    vertexs = original_vertexs;
+    finished_vertexs = vertexs;
+
+    next_frontier = next_frontier_;
+    prefix_edges = prefix_edges_;
+
+    iteration_number = iteration_number_ + 1;
+
+    // if we don't have that many vertices we still have their info stored
+    // so don't query it again
+    if (still_have_starting_edges &&
+        vertexs + (6 * vertex_size) >= end_vertexs) {
+      unsigned long *local child_data;
+      local_child_data_ptr(child_data);
+      phase3_process_cached_child(0);
+      vertexs = vertexs + (vertex_size);
+      // child 1
+      if (vertexs < end_vertexs) {
+        phase3_process_cached_child(1);
+        vertexs = vertexs + (vertex_size);
+        // child 2
+        if (vertexs < end_vertexs) {
+          phase3_process_cached_child(2);
+          vertexs = vertexs + (vertex_size);
+          // child 3
+          if (vertexs < end_vertexs) {
+            phase3_process_cached_child(3);
+            vertexs = vertexs + (vertex_size);
+            // child 4
+            if (vertexs < end_vertexs) {
+              phase3_process_cached_child(4);
+              vertexs = vertexs + (vertex_size);
+              // child 5
+              if (vertexs < end_vertexs) {
+                phase3_process_cached_child(5);
+                vertexs = vertexs + (vertex_size);
+              }
+            }
+          }
+        }
+      }
+      prefix_edges = prefix_edges_;
+      yield;
+    }
+
+    prefix_edges = prefix_edges_;
+    unsigned long continuationWord =
+        evw_update_event(CEVNT, offsets_loaded_phase3_0);
+    send_dram_read(vertexs, 4, continuationWord);
+    vertexs = vertexs + (vertex_size);
+
+    if (vertexs < end_vertexs) {
+      continuationWord = evw_update_event(CEVNT, offsets_loaded_phase3_1);
+      send_dram_read(vertexs, 4, continuationWord);
+      vertexs = vertexs + (vertex_size);
+      if (vertexs < end_vertexs) {
+        continuationWord = evw_update_event(CEVNT, offsets_loaded_phase3_2);
+        send_dram_read(vertexs, 4, continuationWord);
+        vertexs = vertexs + (vertex_size);
+        if (vertexs < end_vertexs) {
+          continuationWord = evw_update_event(CEVNT, offsets_loaded_phase3_3);
+          send_dram_read(vertexs, 4, continuationWord);
+          vertexs = vertexs + (vertex_size);
+          if (vertexs < end_vertexs) {
+            continuationWord = evw_update_event(CEVNT, offsets_loaded_phase3_4);
+            send_dram_read(vertexs, 4, continuationWord);
+            vertexs = vertexs + (vertex_size);
+            if (vertexs < end_vertexs) {
+              continuationWord =
+                  evw_update_event(CEVNT, offsets_loaded_phase3_5);
+              send_dram_read(vertexs, 4, continuationWord);
+              vertexs = vertexs + (vertex_size);
+            }
+          }
+        }
+      }
+    }
+  }
+
+#define offsets_loaded_phase3_event(num)                                       \
+  event offsets_loaded_phase3_##num(                                           \
+      unsigned long *edges0, unsigned long degree0,                            \
+      unsigned long edges_before0, unsigned long vertex_id0) {                 \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    if (degree0 == 0) {                                                        \
+      ref_child_numleft(child_data, num) = 1;                                  \
+      send_event(evw_update_event(CEVNT, done_phase3_##num), prefix_edges,     \
+                 next_frontier, IGNRCONT);                                     \
+      yield;                                                                   \
+    }                                                                          \
+    unsigned long *edges = edges0;                                             \
+    if (1) {                                                                   \
+      int iters = degree0 / 8;                                                 \
+      if (iters * 8 < degree0) {                                               \
+        iters = iters + 1;                                                     \
+      }                                                                        \
+      if (iters > max_outstanding_read_requests_nondet) {                      \
+        iters = max_outstanding_read_requests_nondet;                          \
+      }                                                                        \
+      while (iters > 0) {                                                      \
+        send_dram_read(edges, 8,                                               \
+                       evw_update_event(CEVNT, got_sources_phase3_##num));     \
+        /* +64 is 8 words each 8 bytes in size*/                               \
+        edges = edges + 64;                                                    \
+        iters = iters - 1;                                                     \
+      }                                                                        \
+    }                                                                          \
+    ref_child_edges(child_data, num) = edges;                                  \
+    ref_child_edgesend(child_data, num) = edges0 + (degree0 * sizeof(long));   \
+    ref_child_vertex_id(child_data, num) = vertex_id0;                         \
+    ref_child_numleft(child_data, num) = degree0;                              \
+  }
+  // clang-format off
+  offsets_loaded_phase3_event(0)
+  offsets_loaded_phase3_event(1)
+  offsets_loaded_phase3_event(2)
+  offsets_loaded_phase3_event(3)
+  offsets_loaded_phase3_event(4)
+  offsets_loaded_phase3_event(5)
+      // clang-format on
+
+      event
+      ignore8() {}
+
+#define got_sources_phase3_event(num)                                          \
+  event got_sources_phase3_##num(                                              \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont =                                                \
+          evw_update_event(CEVNT, got_neighbor_phase3_##num);                  \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      unsigned long *edges = ref_child_edges(child_data, num);                 \
+      if (edges < ref_child_edgesend(child_data, num)) {                       \
+        send_dram_read(edges, 8,                                               \
+                       evw_update_event(CEVNT, got_sources_phase3_##num));     \
+        /* +64 is 8 words each 8 bytes in size*/                               \
+        edges = edges + 64;                                                    \
+        ref_child_edges(child_data, num) = edges;                              \
+      }                                                                        \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+#define got_sources_phase3_done_edge_load_event(num)                           \
+  event got_sources_phase3_done_edge_load_##num(                               \
+      unsigned long data0, unsigned long data1, unsigned long data2,           \
+      unsigned long data3, unsigned long data4, unsigned long data5,           \
+      unsigned long data6, unsigned long data7, unsigned long *loc) {          \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long remaining_words_or_cont =                                    \
+        (ref_child_edgesend(child_data, num) - loc);                           \
+    remaining_words_or_cont = remaining_words_or_cont / sizeof(long);          \
+    if (remaining_words_or_cont > 8) {                                         \
+      remaining_words_or_cont =                                                \
+          evw_update_event(CEVNT, got_neighbor_phase3_##num);                  \
+      array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);       \
+      yield;                                                                   \
+    }                                                                          \
+    if (remaining_words_or_cont >= 5) {                                        \
+      if (remaining_words_or_cont >= 7) {                                      \
+        if (remaining_words_or_cont == 8) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load8(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else {                                                               \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load7(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 5 or 6 */                                          \
+        if (remaining_words_or_cont == 6) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load6(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 5 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load5(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      if (remaining_words_or_cont >= 3) {                                      \
+        if (remaining_words_or_cont == 4) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load4(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 3*/                                     \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load3(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      } else { /* cases for 1 or 0*/                                           \
+        if (remaining_words_or_cont == 2) {                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load2(graph, data, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        } else { /* remaining_words == 1 */                                    \
+          remaining_words_or_cont =                                            \
+              evw_update_event(CEVNT, got_neighbor_phase3_##num);              \
+          array_load(graph, data0, vertex_size, 6, remaining_words_or_cont);   \
+          yield;                                                               \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  // clang-format off
+  got_sources_phase3_event(0) 
+  got_sources_phase3_event(1)
+  got_sources_phase3_event(2) 
+  got_sources_phase3_event(3)
+  got_sources_phase3_event(4) 
+  got_sources_phase3_event(5)
+
+  got_sources_phase3_done_edge_load_event(0) 
+  got_sources_phase3_done_edge_load_event(1)
+  got_sources_phase3_done_edge_load_event(2) 
+  got_sources_phase3_done_edge_load_event(3)
+  got_sources_phase3_done_edge_load_event(4) 
+  got_sources_phase3_done_edge_load_event(5)
+      // clang-format on
+      event
+      ignore9() {}
+
+#define got_neighbor_phase3_event(num)                                         \
+  event got_neighbor_phase3_##num(                                             \
+      unsigned long *edges_, unsigned long degree_,                            \
+      unsigned long edges_before_unused, unsigned long other_vertex_id,        \
+      unsigned long distance_unused, unsigned long winner,                     \
+      unsigned long *loc) {                                                    \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    if (winner == ref_child_vertex_id(child_data, num)) {                      \
+      unsigned long cont = evw_update_event(CEVNT, done_phase3_##num);         \
+      if (1) {                                                                 \
+        unsigned long *local args = args_scratch_space;                        \
+        args[0] = edges_;                                                      \
+        args[1] = degree_;                                                     \
+        args[2] = prefix_edges;                                                \
+        prefix_edges = prefix_edges + degree_;                                 \
+        args[3] = other_vertex_id;                                             \
+        send_dram_write(next_frontier, args, 4, cont);                         \
+        next_frontier = next_frontier + (vertex_size);                         \
+      }                                                                        \
+      /* TODO(wheatman) reuse register*/                                       \
+      still_have_starting_edges = UNSIGNED_LONG_MAX;                           \
+      if (1) {                                                                 \
+        ref_child_numleft(child_data, num) =                                   \
+            ref_child_numleft(child_data, num) + 1;                            \
+      }                                                                        \
+      /* distance is in the 5th field */                                       \
+      /* spot for the reservation is in the 6th field */                       \
+      /*                                                                       \
+ TODO(wheatman) right now this only works for BFS since we are just            \
+ manually incrementing the iteration count, we would need to fetch out         \
+ current value and modify it to out neighbors */                               \
+      send_dram_write(loc + (32), iteration_number, still_have_starting_edges, \
+                      cont);                                                   \
+      yield;                                                                   \
+    } else {                                                                   \
+      ref_child_numleft(child_data, num) =                                     \
+          ref_child_numleft(child_data, num) - 1;                              \
+      if (ref_child_numleft(child_data, num) == 0) {                           \
+        finished_vertexs = finished_vertexs + vertex_size;                     \
+        if (finished_vertexs == end_vertexs) {                                 \
+          send_event(CCONT, 0, IGNRCONT);                                      \
+          yield_terminate;                                                     \
+        }                                                                      \
+        if (vertexs < end_vertexs) {                                           \
+          unsigned long continuationWord =                                     \
+              evw_update_event(CEVNT, offsets_loaded_phase3_##num);            \
+          send_dram_read(vertexs, 4, continuationWord);                        \
+          vertexs = vertexs + (vertex_size);                                   \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  // clang-format off
+  got_neighbor_phase3_event(0) 
+  got_neighbor_phase3_event(1)
+  got_neighbor_phase3_event(2) 
+  got_neighbor_phase3_event(3)
+  got_neighbor_phase3_event(4) 
+  got_neighbor_phase3_event(5)
+      // clang-format on
+      event
+      ignore10() {}
+
+#define done_phase3_event(num)                                                 \
+  event done_phase3_##num() {                                                  \
+    unsigned long *local child_data;                                           \
+    local_child_data_ptr(child_data);                                          \
+    unsigned long num_left = ref_child_numleft(child_data, num) - 1;           \
+    ref_child_numleft(child_data, num) = num_left;                             \
+    if (num_left == 0) {                                                       \
+      finished_vertexs = finished_vertexs + vertex_size;                       \
+      if (finished_vertexs == end_vertexs) {                                   \
+        send_event(CCONT, 0, IGNRCONT);                                        \
+        yield_terminate;                                                       \
+      }                                                                        \
+      if (vertexs < end_vertexs) {                                             \
+        unsigned long continuationWord =                                       \
+            evw_update_event(CEVNT, offsets_loaded_phase3_##num);              \
+        send_dram_read(vertexs, 4, continuationWord);                          \
+        vertexs = vertexs + (vertex_size);                                     \
+      }                                                                        \
+    }                                                                          \
+  }
+
+  // clang-format off
+  done_phase3_event(0) 
+  done_phase3_event(1) 
+  done_phase3_event(2)
+  done_phase3_event(3) 
+  done_phase3_event(4) 
+  done_phase3_event(5)
+      // clang-format on
+
+      event
+      ignore11() {}
+}
+
+thread process_vertex_on_one_lane_SPARSE_NON_DETERMINISTIC {
+
+  unsigned long num_reservations;
+  unsigned long prefix_edges;
+
+  unsigned long *edges;
+  unsigned long *edges_end;
+  unsigned long left_to_write;
+  unsigned long vertex_id;
+  unsigned long degree;
+
+  unsigned long *next_frontier_or_edges_begin;
+
+  unsigned long iteration_number;
+
+  unsigned long *graph;
+
+  event phase1(unsigned long *edges_, unsigned long degree_,
+               unsigned long edges_before_unused, unsigned long vertex_id_,
+               unsigned long *graph_) {
+    graph = graph_;
+    num_reservations = 0;
+    edges = edges_;
+    next_frontier_or_edges_begin = edges_;
+    degree = degree_;
+    edges_end = edges_ + (degree_ * sizeof(long));
+    left_to_write = degree_;
+    vertex_id = vertex_id_;
+
+    int iters = degree_ / 8;
+    if (iters * 8 < degree_) {
+      iters = iters + 1;
+    }
+    if (iters > max_outstanding_read_requests_nondet) {
+      iters = max_outstanding_read_requests_nondet;
+    }
+    while (iters > 0) {
+      send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase1));
+      // +64 is 8 words each 8 bytes in size
+      edges = edges + 64;
+      iters = iters - 1;
+    }
+  }
+  event got_sources_phase1(
+      unsigned long data0, unsigned long data1, unsigned long data2,
+      unsigned long data3, unsigned long data4, unsigned long data5,
+      unsigned long data6, unsigned long data7, unsigned long *loc) {
+
+    unsigned long remaining_words = (edges_end - loc);
+    remaining_words = remaining_words / sizeof(long);
+    unsigned long index = loc - next_frontier_or_edges_begin;
+    index = index / sizeof(long);
+    if (index <= 16) {
+      unsigned long *local ptr;
+      local_child_data_ptr(ptr);
+      ptr = ptr + index * 8;
+      copyOperands(data0, ptr, 8);
+    }
+    unsigned long cont = evw_update_event(CEVNT, got_curr_phase1);
+    if (remaining_words > 8) {
+      array_load8(graph, data, vertex_size, 6, cont);
+      if (edges < edges_end) {
+        send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase1));
+        // +64 is 8 words each 8 bytes in size
+        edges = edges + 64;
+      }
+      yield;
+    }
+    if (remaining_words >= 5) {
+      if (remaining_words >= 7) {
+        if (remaining_words == 8) {
+          array_load8(graph, data, vertex_size, 6, cont);
+          yield;
+        } else {
+          array_load7(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+
+      } else { // cases for 5 or 6
+        if (remaining_words == 6) {
+          array_load6(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 5
+          array_load5(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+      }
+    } else {
+      if (remaining_words >= 3) {
+        if (remaining_words == 4) {
+          array_load4(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 3
+          array_load3(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+      } else { // cases for 1 or 0
+        if (remaining_words == 2) {
+          array_load2(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 1
+          array_load(graph, data0, vertex_size, 6, cont);
+          yield;
+        }
+      }
+    }
+  }
+
+  event got_curr_phase1(
+      unsigned long *dests_unused, unsigned long degree_unused,
+      unsigned long edges_before_unused, unsigned long other_vertex_id,
+      unsigned long curr_value, unsigned long reservation, unsigned long *loc) {
+    // algorithm specific
+    if (curr_value == UNSIGNED_LONG_MAX && reservation == UNSIGNED_LONG_MAX) {
+      // the scratch space for the reservation is the 6th field
+      send_dram_write(loc + 40, vertex_id, done_phase1);
+      num_reservations = num_reservations + 1;
+    } else {
+      left_to_write = left_to_write - 1;
+      if (left_to_write == 0) {
+        if (num_reservations > 0) {
+          send_event(CCONT, evw_update_event(CEVNT, phase2), num_reservations,
+                     IGNRCONT);
+          yield;
+        } else {
+          send_event(CCONT, num_reservations, num_reservations, IGNRCONT);
+          yield_terminate;
+        }
+      }
+    }
+  }
+
+  event done_phase1() {
+    left_to_write = left_to_write - 1;
+    if (left_to_write == 0) {
+      if (num_reservations > 0) {
+        send_event(CCONT, evw_update_event(CEVNT, phase2), num_reservations,
+                   IGNRCONT);
+        yield;
+      } else {
+        send_event(CCONT, num_reservations, num_reservations, IGNRCONT);
+        yield_terminate;
+      }
+    }
+  }
+
+  event phase2() {
+    ASSERT_UDW_NON_ZERO(num_reservations);
+    num_reservations = 0;
+    edges = edges_end - (degree * sizeof(long));
+    left_to_write = degree;
+
+    // first do the ones we store locally
+    if (1) {
+      unsigned long cont = evw_update_event(CEVNT, done_phase2);
+      unsigned long *local ptr;
+      local_child_data_ptr(ptr);
+      if (degree > 24) {
+        for (prefix_edges = 0; prefix_edges < 24;
+             prefix_edges = prefix_edges + 1) {
+          array_load(graph, ptr[prefix_edges], vertex_size, 6, cont);
+        }
+
+        edges = edges + (3 * 64);
+      }
+      if (degree <= 24) {
+        for (prefix_edges = 0; prefix_edges < degree;
+             prefix_edges = prefix_edges + 1) {
+          array_load(graph, ptr[prefix_edges], vertex_size, 6, cont);
+        }
+        prefix_edges = 0;
+        yield;
+      }
+    }
+
+    prefix_edges = 0;
+
+    // then do the ones we still need to look up
+    degree = degree - 24;
+    int iters = (degree) / 8;
+    if (iters * 8 < (degree)) {
+      iters = iters + 1;
+    }
+    if (iters > max_outstanding_read_requests_nondet) {
+      iters = max_outstanding_read_requests_nondet;
+    }
+    while (iters > 0) {
+      send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase2));
+      // +64 is 8 words each 8 bytes in size
+      edges = edges + 64;
+      iters = iters - 1;
+    }
+    degree = degree + 24;
+  }
+
+  event got_sources_phase2(
+      unsigned long data0, unsigned long data1, unsigned long data2,
+      unsigned long data3, unsigned long data4, unsigned long data5,
+      unsigned long data6, unsigned long data7, unsigned long *loc) {
+    // print("%d, %d, %d, %d, %d, %d, %d, %d", data0, data1, data2, data3,
+    // data4,
+    //       data5, data6, data7);
+    // print("loc = %p", loc);
+    unsigned long remaining_words = (edges_end - loc);
+    remaining_words = remaining_words / sizeof(long);
+    // print("vertex_id = %d, remaining_words = %d", vertex_id,
+    // remaining_words);
+    unsigned long cont = evw_update_event(CEVNT, done_phase2);
+    if (remaining_words > 8) {
+      array_load8(graph, data, vertex_size, 6, cont);
+      if (edges < edges_end) {
+        send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase2));
+        // +64 is 8 words each 8 bytes in size
+        edges = edges + 64;
+      }
+      yield;
+    }
+    if (remaining_words >= 5) {
+      if (remaining_words >= 7) {
+        if (remaining_words == 8) {
+          array_load8(graph, data, vertex_size, 6, cont);
+          yield;
+        } else {
+          array_load7(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+
+      } else { // cases for 5 or 6
+        if (remaining_words == 6) {
+          array_load6(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 5
+          array_load5(graph, data, vertex_size, 6, cont);
+
+          yield;
+        }
+      }
+    } else {
+      if (remaining_words >= 3) {
+        if (remaining_words == 4) {
+          array_load4(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 3
+          array_load3(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+      } else { // cases for 1 or 0
+        if (remaining_words == 2) {
+          array_load2(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 1
+          array_load(graph, data0, vertex_size, 6, cont);
+          yield;
+        }
+      }
+    }
+  }
+
+  event done_phase2(unsigned long *dests_unused, unsigned long deg,
+                    unsigned long edges_before_unused,
+                    unsigned long other_vertex_id_unused,
+                    unsigned long curr_value_unused, unsigned long winner) {
+    left_to_write = left_to_write - 1;
+    if (winner == vertex_id) {
+      num_reservations = num_reservations + 1;
+      prefix_edges = prefix_edges + deg;
+    }
+    if (left_to_write == 0) {
+      if (num_reservations == 0) {
+        send_event(CCONT, num_reservations, num_reservations, num_reservations,
+                   IGNRCONT);
+        yield_terminate;
+      }
+      send_event(CCONT, num_reservations, prefix_edges,
+                 evw_update_event(CEVNT, phase3), IGNRCONT);
+      yield;
+    }
+  }
+
+  event phase3(unsigned long *next_frontier_, unsigned long prefix_edges_,
+               unsigned long iteration_number_) {
+    ASSERT_UDW_NON_ZERO(num_reservations);
+
+    iteration_number = iteration_number_ + 1;
+
+    edges = edges_end - (degree * sizeof(long));
+    left_to_write = degree;
+    next_frontier_or_edges_begin = next_frontier_;
+
+    if (1) {
+      unsigned long cont = evw_update_event(CEVNT, got_neighbor_phase3);
+      unsigned long *local ptr;
+      local_child_data_ptr(ptr);
+      if (degree > 24) {
+        for (prefix_edges = 0; prefix_edges < 24;
+             prefix_edges = prefix_edges + 1) {
+          array_load(graph, ptr[prefix_edges], vertex_size, 6, cont);
+        }
+
+        edges = edges + (3 * 64);
+      }
+      if (degree <= 24) {
+        for (prefix_edges = 0; prefix_edges < degree;
+             prefix_edges = prefix_edges + 1) {
+          array_load(graph, ptr[prefix_edges], vertex_size, 6, cont);
+        }
+        prefix_edges = prefix_edges_;
+        yield;
+      }
+    }
+
+    prefix_edges = prefix_edges_;
+
+    degree = degree - 24;
+
+    int iters = degree / 8;
+    if (iters * 8 < degree) {
+      iters = iters + 1;
+    }
+    if (iters > max_outstanding_read_requests_nondet) {
+      iters = max_outstanding_read_requests_nondet;
+    }
+    while (iters > 0) {
+      send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase3));
+      // +64 is 8 words each 8 bytes in size
+      edges = edges + 64;
+      iters = iters - 1;
+    }
+    degree = degree + 24;
+  }
+
+  event got_sources_phase3(
+      unsigned long data0, unsigned long data1, unsigned long data2,
+      unsigned long data3, unsigned long data4, unsigned long data5,
+      unsigned long data6, unsigned long data7, unsigned long *loc) {
+
+    // print("loc = %p", loc);
+    unsigned long remaining_words = (edges_end - loc);
+    remaining_words = remaining_words / sizeof(long);
+    unsigned long cont = evw_update_event(CEVNT, got_neighbor_phase3);
+    if (remaining_words > 8) {
+      array_load8(graph, data, vertex_size, 6, cont);
+      if (edges < edges_end) {
+        send_dram_read(edges, 8, evw_update_event(CEVNT, got_sources_phase3));
+        // +64 is 8 words each 8 bytes in size
+        edges = edges + 64;
+      }
+      yield;
+    }
+    if (remaining_words >= 5) {
+      if (remaining_words >= 7) {
+        if (remaining_words == 8) {
+          array_load8(graph, data, vertex_size, 6, cont);
+          yield;
+        } else {
+          array_load7(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+
+      } else { // cases for 5 or 6
+        if (remaining_words == 6) {
+          array_load6(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 5
+          array_load5(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+      }
+    } else {
+      if (remaining_words >= 3) {
+        if (remaining_words == 4) {
+          array_load4(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 3
+          array_load3(graph, data, vertex_size, 6, cont);
+          yield;
+        }
+      } else { // cases for 1 or 0
+        if (remaining_words == 2) {
+          array_load2(graph, data, vertex_size, 6, cont);
+          yield;
+        } else { // remaining_words == 1
+          array_load(graph, data0, vertex_size, 6, cont);
+          yield;
+        }
+      }
+    }
+  }
+  event got_neighbor_phase3(
+      unsigned long *edges_, unsigned long degree_, unsigned long edges_before,
+      unsigned long other_vertex_id, unsigned long curr_dist,
+      unsigned long winner, unsigned long *loc) {
+
+    if (winner == vertex_id) {
+
+      if (1) {
+        unsigned long *local args = args_scratch_space;
+        args[0] = edges_;
+        args[1] = degree_;
+        args[2] = prefix_edges;
+        prefix_edges = prefix_edges + degree_;
+        args[3] = other_vertex_id;
+
+        send_dram_write(next_frontier_or_edges_begin, args, 4, done_phase3);
+        // print("%d added %d at loc %p", vertex_id, vertex_id_,
+        // next_frontier);
+        next_frontier_or_edges_begin =
+            next_frontier_or_edges_begin + (vertex_size);
+      }
+
+      unsigned long write_val = UNSIGNED_LONG_MAX;
+      left_to_write = left_to_write + 1;
+      // distance is in the 5th field and reservation is in the 6th
+      // TODO(wheatman) right now this only works for BFS since we are just
+      // manually incrementing the iteration count, we would need to fetch
+      // out
+      // current value and modify it to out neighbors
+      send_dram_write(loc + 32, iteration_number, write_val, done_phase3);
+      yield;
+    } else {
+      left_to_write = left_to_write - 1;
+      if (left_to_write == 0) {
+        send_event(CCONT, 0, IGNRCONT);
+        yield_terminate;
+      }
+    }
+  }
+
+  event done_phase3() {
+    left_to_write = left_to_write - 1;
+    if (left_to_write == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+  }
+}
+
+thread process_vertex_SPARSE_NON_DETERMINISTIC {
+  unsigned long counter;
+
+  unsigned long left_child;
+  unsigned long right_child;
+
+  unsigned long left_num_reservations;
+  unsigned long left_num_edges;
+
+  event phase1(unsigned long *edges, unsigned long degree,
+               unsigned long edges_before, unsigned long vertex_id,
+               unsigned long *graph_, unsigned long num_lanes, int lane_start,
+               unsigned long depth) {
+    // print("depth = %d", depth);
+    // print("num_lanes_ = %d, degree = %d, edges = %p", num_lanes_, degree,
+    //       edges);
+    // print("num_lanes = %d, degree = %d", num_lanes, degree);
+    if (num_lanes <= 1 || degree <= 32) {
+      unsigned long evwWord = evw_update_event(
+          CEVNT, process_vertex_on_one_lane_SPARSE_NON_DETERMINISTIC::phase1);
+#ifdef ENABLE_SEND_TO_SHORTEST
+      send_ops(evwWord, edges, 5, CCONT, SP_SHORTEST);
+#else
+      send_ops(evwWord, edges, 5, CCONT);
+#endif
+      yield;
+    }
+
+    // else split up the work and do some by each child
+    unsigned long edges_per_split = degree >> 1;
+    unsigned long lanes_per_split = num_lanes >> 1;
+
+    if (edges_per_split % 8 != 0) {
+      edges_per_split = edges_per_split >> 3;
+      edges_per_split = edges_per_split;
+      edges_per_split = edges_per_split << 3;
+    }
+
+    unsigned long *local args = args_scratch_space;
+    if (1) {
+      args[0] = edges;
+      args[1] = edges_per_split;
+      args[2] = edges_before;
+      args[3] = vertex_id;
+      args[4] = graph_;
+      args[5] = lanes_per_split;
+      args[6] = lane_start;
+      args[7] = depth + 1;
+      int id = FAKE_COMBINE_LANES(lane_start);
+      unsigned long evwWord = evw_new(id, phase1);
+      unsigned long continuationWord =
+          evw_update_event(CEVNT, done_phase1_left);
+      send_event(evwWord, args, 8, continuationWord);
+    }
+    if (1) {
+      // reusing register
+      if (1) {
+        counter = (edges_per_split * sizeof(long));
+        args[0] = edges + counter;
+        args[1] = degree - edges_per_split;
+        args[2] = edges_before + edges_per_split;
+        // args[3] = vertex_id;
+        args[5] = num_lanes - lanes_per_split;
+      }
+      int id = lane_start + lanes_per_split;
+      args[6] = id;
+      counter = depth + 1;
+      args[7] = counter;
+      id = FAKE_COMBINE_LANES(id);
+      unsigned long evwWord = evw_new(id, phase1);
+      counter = evw_update_event(CEVNT, done_phase1_right);
+      send_event(evwWord, args, 8, counter);
+    }
+
+    counter = 2;
+  }
+
+  event done_phase1_left(unsigned long child, unsigned long active) {
+    if (active != 0) {
+      left_child = child;
+    } else {
+      left_child = 0;
+    }
+
+    if (counter == 1) {
+      if (right_child != 0 || left_child != 0) {
+        send_event(CCONT, evw_update_event(CEVNT, phase2), 1, IGNRCONT);
+        yield;
+      } else {
+        send_event(CCONT, 0, 0, IGNRCONT);
+        yield_terminate;
+      }
+    }
+    if (counter == 2) {
+      counter = 1;
+      yield;
+    }
+    print("bad counter value");
+  }
+  event done_phase1_right(unsigned long child, unsigned long num_active) {
+    if (num_active != 0) {
+      right_child = child;
+    } else {
+      right_child = 0;
+    }
+
+    if (counter == 1) {
+      if (right_child != 0 || left_child != 0) {
+        send_event(CCONT, evw_update_event(CEVNT, phase2), 1, IGNRCONT);
+        yield;
+      } else {
+        send_event(CCONT, 0, 0, IGNRCONT);
+        yield_terminate;
+      }
+    }
+    if (counter == 2) {
+      counter = 1;
+      yield;
+    }
+    print("bad counter value");
+  }
+
+  event phase2() {
+    if (left_child != 0 && right_child != 0) {
+      unsigned long continuationWord =
+          evw_update_event(CEVNT, done_phase2_left);
+      send_event(left_child, 0, continuationWord);
+      continuationWord = evw_update_event(CEVNT, done_phase2_right);
+      send_event(right_child, 0, continuationWord);
+      left_num_reservations = 0;
+      left_num_edges = 0;
+      counter = 2;
+      yield;
+    }
+    if (left_child != 0) {
+      send_event(left_child, 0, CCONT);
+      yield_terminate;
+    }
+
+    if (right_child != 0) {
+      send_event(right_child, 0, CCONT);
+      yield_terminate;
+    }
+    print("should never get here");
+  }
+
+  event done_phase2_left(unsigned long left_vertex_count,
+                         unsigned long left_edge_count, unsigned long child) {
+    if (left_vertex_count != 0) {
+      left_child = child;
+    } else {
+      left_child = 0;
+    }
+
+    if (counter == 1) {
+      unsigned long total_vertex_count =
+          left_num_reservations + left_vertex_count;
+      unsigned long total_edge_count = left_num_edges + left_edge_count;
+      left_num_reservations = left_vertex_count;
+      left_num_edges = left_edge_count;
+      if (total_vertex_count != 0) {
+        send_event(CCONT, total_vertex_count, total_edge_count,
+                   evw_update_event(CEVNT, phase3), IGNRCONT);
+        yield;
+      } else {
+        // all set to zero
+        send_event(CCONT, total_vertex_count, total_vertex_count,
+                   total_vertex_count, IGNRCONT);
+        yield_terminate;
+      }
+    }
+    if (counter == 2) {
+      counter = 1;
+      left_num_reservations = left_vertex_count;
+      left_num_edges = left_edge_count;
+      yield;
+    }
+    print("bad counter value");
+  }
+  event done_phase2_right(unsigned long right_vertex_count,
+                          unsigned long right_edge_count, unsigned long child) {
+    if (right_vertex_count != 0) {
+      right_child = child;
+    } else {
+      right_child = 0;
+    }
+    if (counter == 1) {
+      unsigned long total_vertex_count =
+          left_num_reservations + right_vertex_count;
+      unsigned long total_edge_count = left_num_edges + right_edge_count;
+      if (total_vertex_count != 0) {
+        send_event(CCONT, total_vertex_count, total_edge_count,
+                   evw_update_event(CEVNT, phase3), IGNRCONT);
+        yield;
+      } else {
+        // set all to zero
+        send_event(CCONT, total_vertex_count, total_vertex_count,
+                   total_vertex_count, IGNRCONT);
+        yield_terminate;
+      }
+    }
+    if (counter == 2) {
+      counter = 1;
+      left_num_reservations = right_vertex_count;
+      left_num_edges = right_edge_count;
+      yield;
+    }
+    print("bad counter value");
+  }
+
+  event phase3(unsigned long *next_frontier, unsigned long prefix_edges,
+               unsigned long iteration_number) {
+    // print("num_lanes = %d, degree = %d", num_lanes, degree);
+    if (left_child != 0 && right_child != 0) {
+      unsigned long continuationWord = evw_update_event(CEVNT, done_phase3);
+      send_event(left_child, next_frontier, prefix_edges, iteration_number,
+                 continuationWord);
+      send_event(
+          right_child, next_frontier + (left_num_reservations * (vertex_size)),
+          prefix_edges + left_num_edges, iteration_number, continuationWord);
+      counter = 1;
+      yield;
+    }
+    if (left_child != 0) {
+      send_event(left_child, next_frontier, prefix_edges, iteration_number,
+                 CCONT);
+      yield_terminate;
+    }
+    if (right_child != 0) {
+      ASSERT_UDW_ZERO(left_num_reservations);
+      ASSERT_UDW_ZERO(left_num_edges);
+      send_event(right_child, next_frontier, prefix_edges, iteration_number,
+                 CCONT);
+      yield_terminate;
+    }
+  }
+
+  event done_phase3() {
+    if (counter == 0) {
+      send_event(CCONT, 0, IGNRCONT);
+      yield_terminate;
+    }
+    counter = counter - 1;
+  }
+}
